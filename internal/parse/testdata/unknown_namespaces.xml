@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:foo="http://unknown.example.com/ns/foo"
+     xmlns:bar="urn:example:bar"
+     foo:flag="yes">
+  <channel>
+    <title>Namespaced</title>
+    <link>https://ns.example.com/</link>
+    <description>Has unknown extensions</description>
+    <foo:title>Not the channel title</foo:title>
+    <foo:item><title>Not an item</title></foo:item>
+    <bar:config bar:mode="x"><bar:nested><bar:deep a="1">text</bar:deep></bar:nested></bar:config>
+    <undeclared:thing>prefix without a declaration</undeclared:thing>
+    <item>
+      <title>Real item</title>
+      <foo:title>Not the item title</foo:title>
+      <link>https://ns.example.com/1</link>
+      <foo:link>https://ns.example.com/not-this</foo:link>
+      <guid>ns-1</guid>
+      <bar:rating value="5"/>
+      <undeclared:extra><undeclared:child/></undeclared:extra>
+      <description>Body</description>
+    </item>
+  </channel>
+</rss>

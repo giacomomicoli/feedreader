@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Slow news</title>
+    <link>https://slow.example.com/</link>
+    <description>Updated rarely</description>
+    <ttl>90</ttl>
+    <item>
+      <title>Only item</title>
+      <link>https://slow.example.com/1</link>
+      <guid>https://slow.example.com/1</guid>
+    </item>
+  </channel>
+</rss>

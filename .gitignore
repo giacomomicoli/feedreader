@@ -1,0 +1,25 @@
+# build output
+bin/
+/feedreader
+*.test
+*.out
+
+# runtime data (SQLite database, WAL files)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# local configuration and secrets
+.env
+.env.local
+
+# local tool settings
+/.claude/
+
+# editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store

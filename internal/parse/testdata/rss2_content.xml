@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Example &amp; Co. Blog</title>
+    <link>/</link>
+    <description>Notes about things</description>
+    <atom:link href="https://blog.example.com/feed.xml" rel="self" type="application/rss+xml"/>
+    <image>
+      <url>/images/logo.png</url>
+      <title>Example</title>
+      <link>/</link>
+    </image>
+    <item>
+      <title>First &lt;em&gt;post&lt;/em&gt;</title>
+      <link>/2026/10/first-post</link>
+      <guid isPermaLink="false">post-1</guid>
+      <pubDate>Tue, 06 Oct 2026 08:00:00 +0200</pubDate>
+      <dc:creator>Jane Doe</dc:creator>
+      <description>&lt;p&gt;Short teaser with a &lt;a href="/about"&gt;relative link&lt;/a&gt;.&lt;/p&gt;</description>
+      <content:encoded><![CDATA[<p>Full text.</p><img src="/img/first.jpg" alt="first"><script>alert(1)</script>]]></content:encoded>
+    </item>
+    <item>
+      <title>Second post</title>
+      <link>https://blog.example.com/2026/10/second-post</link>
+      <guid>https://blog.example.com/?p=2</guid>
+      <pubDate>Mon, 05 Oct 2026 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>Only content here, <img src="images/second.png" srcset="images/second@2x.png 2x"> with an image.</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Plain text teaser</title>
+      <link>https://blog.example.com/2026/10/third</link>
+      <pubDate>Sun, 04 Oct 2026 12:00:00 GMT</pubDate>
+      <description>Line one
+Line two &amp; more</description>
+    </item>
+  </channel>
+</rss>

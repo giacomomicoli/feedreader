@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>GUID cases</title>
+    <link>https://g.example.com/</link>
+    <description>guid derivation</description>
+    <item>
+      <title>Upper</title>
+      <guid isPermaLink="false">http://g.example.com/Thing</guid>
+      <link>https://g.example.com/a</link>
+    </item>
+    <item>
+      <title>Lower</title>
+      <guid isPermaLink="false">http://g.example.com/thing</guid>
+      <link>https://g.example.com/b</link>
+    </item>
+    <item>
+      <title>Link only</title>
+      <link>https://g.example.com/c</link>
+    </item>
+    <item>
+      <title>Hash me</title>
+      <description>Body</description>
+    </item>
+    <item>
+      <title>Permalink guid</title>
+      <guid>https://g.example.com/e</guid>
+    </item>
+    <item>
+      <title>Opaque guid</title>
+      <guid isPermaLink="false">https://g.example.com/f-not-a-link</guid>
+    </item>
+    <item>
+      <title>Blank guid</title>
+      <guid>   </guid>
+      <link>https://g.example.com/g</link>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,94 @@
+{{/* Add-source flow. Each step replaces #add-flow. */}}
+{{define "page-add"}}
+<div class="page page-narrow">
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1 class="page-title">Add source</h1>
+      <p class="topbar-sub">A YouTube channel or playlist, a website, or a feed URL.</p>
+    </div>
+  </header>
+  {{template "add-flow" .}}
+</div>
+{{end}}
+
+{{define "add-flow"}}
+<section id="add-flow" class="panel add-flow" hx-target="#add-flow" hx-swap="outerHTML">
+  {{if eq .Step "choose"}}{{template "add-choose" .}}
+  {{else if eq .Step "confirm"}}{{template "add-confirm" .}}
+  {{else}}{{template "add-url" .}}{{end}}
+</section>
+{{end}}
+
+{{define "add-url"}}
+<form class="stack" method="post" action="/add/resolve" hx-post="/add/resolve">
+  <label for="add-url">Address</label>
+  <div class="input-row">
+    <input id="add-url" name="url" type="text" inputmode="url" value="{{.URL}}" required maxlength="{{maxURL}}" autocomplete="off" autofocus
+      placeholder="youtube.com/@channel or example.com/blog"{{if .Error}} aria-invalid="true" aria-describedby="add-url-error"{{end}}>
+    <button class="btn btn-primary" type="submit">Find feeds</button>
+  </div>
+  {{if .Error}}<p class="field-error" id="add-url-error">{{.Error}}</p>{{end}}
+  {{with .Conflict}}<p class="field-note">You're already subscribed to <a href="{{.Href}}">{{.Title}}</a>.</p>{{end}}
+</form>
+{{if .ShowDirect}}
+<form class="stack direct-feed" method="post" action="/add/preview" hx-post="/add/preview">
+  <label for="direct-url">Or enter the feed URL directly</label>
+  <div class="input-row">
+    <input id="direct-url" name="feed_url" type="text" inputmode="url" value="{{.DirectURL}}" required maxlength="{{maxURL}}" autocomplete="off">
+    <button class="btn" type="submit">Use this feed</button>
+  </div>
+</form>
+{{end}}
+{{end}}
+
+{{define "add-choose"}}
+<form class="stack" method="post" action="/add/preview" hx-post="/add/preview">
+  <input type="hidden" name="url" value="{{.URL}}">
+  <fieldset class="choices">
+    <legend>{{len .Candidates}} feeds found at {{.URL}}. Pick one.</legend>
+    {{range $i, $c := .Candidates}}
+    <label class="choice">
+      <input type="radio" name="feed_url" value="{{$c.URL}}"{{if eq $i 0}} checked{{end}} required>
+      <span class="choice-text"><span class="choice-title">{{$c.Label}}</span><span class="choice-url">{{$c.URL}}</span></span>
+    </label>
+    {{end}}
+  </fieldset>
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Continue</button>
+    <a class="btn btn-quiet" href="/add">Start over</a>
+  </div>
+</form>
+{{end}}
+
+{{define "add-confirm"}}
+<form class="stack" method="post" action="/add/subscribe" hx-post="/add/subscribe">
+  <input type="hidden" name="feed_url" value="{{.Preview.FeedURL}}">
+  <input type="hidden" name="kind" value="{{.Preview.Kind}}">
+  <input type="hidden" name="entries" value="{{.Preview.EntryCount}}">
+  <input type="hidden" name="site_url" value="{{.Preview.SiteURL}}">
+  <div class="preview">
+    <p class="preview-kind">{{.Preview.KindLabel}}</p>
+    <p class="preview-url">{{.Preview.FeedURL}}</p>
+    <p>{{.Preview.CountText}} {{.Preview.UnreadNote}}</p>
+  </div>
+  <label for="sub-title">Title</label>
+  <input id="sub-title" name="title" type="text" value="{{.Title}}" maxlength="{{maxName}}" autocomplete="off">
+  <label for="sub-folder">Folder</label>
+  <select id="sub-folder" name="folder" hx-get="/add/folder-field" hx-trigger="change" hx-target="#new-folder-field" hx-swap="innerHTML">
+    <option value="0">No folder</option>
+    {{range .Folders}}<option value="{{.ID}}"{{if .Selected}} selected{{end}}>{{.Name}}</option>{{end}}
+    <option value="new"{{if .NewSelected}} selected{{end}}>New folder…</option>
+  </select>
+  <div id="new-folder-field" class="stack">{{if .NewSelected}}{{template "add-new-folder" .}}{{end}}</div>
+  {{if .Error}}<p class="field-error">{{.Error}}</p>{{end}}
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Subscribe</button>
+    <a class="btn btn-quiet" href="/add">Cancel</a>
+  </div>
+</form>
+{{end}}
+
+{{define "add-new-folder"}}
+<label for="sub-new-folder">New folder name</label>
+<input id="sub-new-folder" name="new_folder" type="text" value="{{.NewFolder}}" required maxlength="{{maxName}}" autocomplete="off">
+{{end}}

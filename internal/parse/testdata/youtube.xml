@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UCaaaaaaaaaaaaaaaaaaaaaa"/>
+ <id>yt:channel:aaaaaaaaaaaaaaaaaaaaaa</id>
+ <yt:channelId>aaaaaaaaaaaaaaaaaaaaaa</yt:channelId>
+ <title>Example Channel</title>
+ <link rel="alternate" href="https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa"/>
+ <author>
+  <name>Example Channel</name>
+  <uri>https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa</uri>
+ </author>
+ <published>2015-03-01T00:00:00+00:00</published>
+ <entry>
+  <id>yt:video:AAAAAAAAAA1</id>
+  <yt:videoId>AAAAAAAAAA1</yt:videoId>
+  <yt:channelId>UCaaaaaaaaaaaaaaaaaaaaaa</yt:channelId>
+  <title>A short clip</title>
+  <link rel="alternate" href="https://www.youtube.com/shorts/AAAAAAAAAA1"/>
+  <author>
+   <name>Example Channel</name>
+   <uri>https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa</uri>
+  </author>
+  <published>2026-10-07T23:00:12+00:00</published>
+  <updated>2026-10-07T23:00:16+00:00</updated>
+  <media:group>
+   <media:title>A short clip</media:title>
+   <media:content url="https://www.youtube.com/v/AAAAAAAAAA1?version=3" type="application/x-shockwave-flash" width="640" height="390"/>
+   <media:thumbnail url="https://i4.ytimg.com/vi/AAAAAAAAAA1/hqdefault.jpg" width="480" height="360"/>
+   <media:description>First line &lt;b&gt;not bold&lt;/b&gt; &amp; "quoted"
+
+
+Links → https://example.com/x</media:description>
+   <media:community>
+    <media:starRating count="11" average="5.00" min="1" max="5"/>
+    <media:statistics views="449"/>
+   </media:community>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:BBBBBBBBBB2</id>
+  <yt:videoId>BBBBBBBBBB2</yt:videoId>
+  <yt:channelId>UCaaaaaaaaaaaaaaaaaaaaaa</yt:channelId>
+  <title>🧶 A long video</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=BBBBBBBBBB2"/>
+  <author>
+   <name>Example Channel</name>
+   <uri>https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa</uri>
+  </author>
+  <published>2026-10-06T16:00:07+00:00</published>
+  <updated>2026-10-08T01:02:03+00:00</updated>
+  <media:group>
+   <media:title>🧶 A long video</media:title>
+   <media:content url="https://www.youtube.com/v/BBBBBBBBBB2?version=3" type="application/x-shockwave-flash" width="640" height="390"/>
+   <media:thumbnail url="https://i1.ytimg.com/vi/BBBBBBBBBB2/hqdefault.jpg" width="480" height="360"/>
+   <media:description>Second description.</media:description>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:CCCCCCCCCC3</id>
+  <yt:videoId>CCCCCCCCCC3</yt:videoId>
+  <yt:channelId>UCaaaaaaaaaaaaaaaaaaaaaa</yt:channelId>
+  <title>No description</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=CCCCCCCCCC3"/>
+  <author>
+   <name>Example Channel</name>
+   <uri>https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa</uri>
+  </author>
+  <published>2026-10-05T10:00:00+00:00</published>
+  <updated>2026-10-05T10:00:00+00:00</updated>
+  <media:group>
+   <media:title>No description</media:title>
+   <media:thumbnail url="https://i2.ytimg.com/vi/CCCCCCCCCC3/hqdefault.jpg" width="480" height="360"/>
+   <media:description></media:description>
+  </media:group>
+ </entry>
+</feed>

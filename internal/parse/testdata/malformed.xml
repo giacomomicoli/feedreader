@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>Broken & Co</title>
+<link>http://broken.example.com/</link>
+<item>
+<title>Fish & Chips < 5 euros</title>
+<link>http://broken.example.com/?a=1&b=2</link>
+<description>bell vt invalid ÿþ bytes nonchar ï¿¾ end</description>
+</item>
+</channel>
+</rss>

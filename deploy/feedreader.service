@@ -1,0 +1,37 @@
+[Unit]
+Description=feedreader (self-hosted feed reader)
+Documentation=https://github.com/giacomomicoli/feedreader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=feedreader
+Group=feedreader
+EnvironmentFile=/etc/feedreader/env
+ExecStart=/usr/local/bin/feedreader
+Restart=on-failure
+RestartSec=5
+
+# State: /var/lib/feedreader (SQLite database), private to the service user.
+StateDirectory=feedreader
+StateDirectoryMode=0700
+UMask=0077
+
+# Sandboxing. ProtectSystem/ProtectHome/PrivateTmp need mount namespaces. Inside
+# an unprivileged container (e.g. LXC) enable the container's nesting feature,
+# or the unit fails with status=226/NAMESPACE; if you cannot, remove the
+# Protect*/PrivateTmp/ReadWritePaths lines instead.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/feedreader
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

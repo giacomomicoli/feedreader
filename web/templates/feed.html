@@ -1,0 +1,83 @@
+{{/* Feed settings page. */}}
+{{define "page-feed"}}
+<div class="page page-narrow">
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1 class="page-title">{{.Title}}</h1>
+      <p class="topbar-sub">{{.KindLabel}} settings</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn" href="{{.ScopeHref}}">View entries</a>
+      <form method="post" action="/refresh" hx-post="/refresh" hx-target="#notice" hx-swap="innerHTML">
+        <input type="hidden" name="scope" value="feed">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <input type="hidden" name="back" value="/feeds/{{.ID}}">
+        <button class="btn" type="submit">{{template "icon" "refresh"}}<span>Refresh now</span></button>
+      </form>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>Name and folder</h2>
+    <form class="stack" method="post" action="/feeds/{{.ID}}/rename" hx-post="/feeds/{{.ID}}/rename" hx-target="#err-rename" hx-swap="innerHTML">
+      <label for="feed-title">Title</label>
+      <div class="input-row">
+        <input id="feed-title" name="title" type="text" value="{{.Title}}" required maxlength="{{maxName}}" autocomplete="off">
+        <button class="btn" type="submit">Rename</button>
+      </div>
+      {{if .OriginalTitle}}<p class="field-note">The feed calls itself “{{.OriginalTitle}}”.</p>{{end}}
+      <p class="form-error" id="err-rename" aria-live="polite"></p>
+    </form>
+    <form class="stack" method="post" action="/feeds/{{.ID}}/move" hx-post="/feeds/{{.ID}}/move" hx-target="#err-move" hx-swap="innerHTML">
+      <label for="feed-folder">Folder</label>
+      <div class="input-row">
+        <select id="feed-folder" name="folder">
+          <option value="0">No folder</option>
+          {{range .Folders}}<option value="{{.ID}}"{{if .Selected}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+        <button class="btn" type="submit">Move</button>
+      </div>
+      <p class="form-error" id="err-move" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Polling</h2>
+    <form class="stack" method="post" action="/feeds/{{.ID}}/interval" hx-post="/feeds/{{.ID}}/interval" hx-target="#err-interval" hx-swap="innerHTML">
+      <label for="feed-interval">Check for new entries every</label>
+      <div class="input-row">
+        <input id="feed-interval" name="interval" type="text" value="{{.IntervalValue}}" placeholder="{{.DefaultInterval}} (default)" maxlength="32" autocomplete="off" aria-describedby="interval-help">
+        <button class="btn" type="submit">Save</button>
+      </div>
+      <p class="field-note" id="interval-help">Minutes (90) or a duration (2h, 1h30m), at least {{.MinInterval}}. Leave empty to use the default of {{.DefaultInterval}}.</p>
+      <p class="form-error" id="err-interval" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Fetch status</h2>
+    <dl class="facts">
+      <dt>Last fetch</dt>
+      <dd>{{.LastFetch}}{{if .LastFetchRel}} <span class="muted">({{.LastFetchRel}})</span>{{end}}</dd>
+      <dt>Next fetch</dt>
+      <dd>{{.NextFetch}}{{if .NextFetchRel}} <span class="muted">({{.NextFetchRel}})</span>{{end}}</dd>
+      <dt>Failures in a row</dt>
+      <dd>{{if .Warn}}<span class="feed-warn">{{template "icon" "warn"}}</span> {{end}}{{.ErrorCount}}</dd>
+      <dt>Last error</dt>
+      <dd>{{if .LastError}}<span class="error-text">{{.LastError}}</span>{{else}}None{{end}}</dd>
+      <dt>Feed URL</dt>
+      <dd class="break">{{if .FeedLink}}<a href="{{.FeedLink}}" target="_blank" rel="noopener noreferrer">{{.FeedURL}}</a>{{else}}{{.FeedURL}}{{end}}</dd>
+      <dt>Website</dt>
+      <dd class="break">{{if .SiteLink}}<a href="{{.SiteLink}}" target="_blank" rel="noopener noreferrer">{{.SiteURL}}</a>{{else if .SiteURL}}{{.SiteURL}}{{else}}Unknown{{end}}</dd>
+    </dl>
+  </section>
+
+  <section class="panel panel-danger">
+    <h2>Unsubscribe</h2>
+    <div id="unsubscribe-panel">
+      <p>Removes this source together with every entry it delivered, including saved ones.</p>
+      <a class="btn btn-quiet-danger" href="/feeds/{{.ID}}/unsubscribe" hx-get="/feeds/{{.ID}}/unsubscribe" hx-target="#unsubscribe-panel" hx-swap="innerHTML">Unsubscribe…</a>
+    </div>
+  </section>
+</div>
+{{end}}

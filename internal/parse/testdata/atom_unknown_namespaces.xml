@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="http://unknown.example.com/x" xmlns:georss="http://www.georss.org/georss">
+  <title>Atom namespaced</title>
+  <id>urn:example:atom-ns</id>
+  <updated>2026-10-01T00:00:00Z</updated>
+  <x:entry><x:id>not-an-entry</x:id></x:entry>
+  <x:settings x:a="1"><x:b/></x:settings>
+  <entry>
+    <title>Only entry</title>
+    <x:title>Not the title</x:title>
+    <id>urn:example:atom-ns:1</id>
+    <updated>2026-10-01T00:00:00Z</updated>
+    <georss:point>45.256 -71.92</georss:point>
+    <link href="https://ns.example.org/1"/>
+  </entry>
+</feed>

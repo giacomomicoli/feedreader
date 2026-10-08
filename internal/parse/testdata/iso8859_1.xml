@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<rss version="2.0">
+<channel>
+<title>Café à la crème</title>
+<link>http://latin.example.com/</link>
+<description>Latin-1</description>
+<item>
+<title>Naïve résumé</title>
+<link>http://latin.example.com/1</link>
+<description>Prix £5 · déjà vu</description>
+</item>
+</channel>
+</rss>

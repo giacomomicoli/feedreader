@@ -1,0 +1,77 @@
+{{/* Left column: scopes, tags, folders with their feeds, new-folder form. */}}
+{{define "sidebar"}}
+<aside class="sidebar">
+  <div class="sidebar-head">
+    <a class="brand" href="/">feedreader</a>
+    <a class="btn btn-primary btn-add" href="/add">{{template "icon" "plus"}}<span>Add source</span></a>
+  </div>
+  <nav class="nav" aria-label="Scopes">
+    <ul class="nav-list">
+      {{range .Nav}}
+      <li><a class="nav-item{{if .Active}} is-active{{end}}" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span class="nav-label">{{.Label}}</span>{{with .Badge}}{{template "badge" .}}{{end}}</a></li>
+      {{end}}
+    </ul>
+
+    {{if not .Unavailable}}
+    <h2 class="nav-heading">Tags</h2>
+    {{template "sidebar-tags" .Tags}}
+
+    <h2 class="nav-heading">Subscriptions</h2>
+    {{if not .HasFeeds}}<p class="nav-empty">No sources yet.</p>{{end}}
+    {{range .Folders}}
+    <details class="folder"{{if .Open}} open{{end}}>
+      <summary class="nav-item folder-row{{if .Active}} is-active{{end}}">
+        <span class="folder-toggle">{{template "icon" "chevron"}}</span>
+        <a class="nav-label" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>
+        {{template "badge" .Badge}}
+      </summary>
+      {{if .Feeds}}
+      <ul class="nav-list feed-list">{{range .Feeds}}{{template "feed-nav" .}}{{end}}</ul>
+      {{else}}<p class="nav-empty nav-indent">Empty folder</p>{{end}}
+    </details>
+    {{end}}
+    {{if .Uncategorized}}
+    <ul class="nav-list feed-list uncategorized">{{range .Uncategorized}}{{template "feed-nav" .}}{{end}}</ul>
+    {{end}}
+    {{end}}
+  </nav>
+
+  <form class="new-folder" method="post" action="/folders" hx-post="/folders" hx-target="#err-new-folder" hx-swap="innerHTML">
+    <label class="nav-heading" for="new-folder-name">New folder</label>
+    <div class="input-row">
+      <input id="new-folder-name" name="name" type="text" required maxlength="{{maxName}}" placeholder="Folder name" autocomplete="off">
+      <button class="btn" type="submit">Create</button>
+    </div>
+    <p class="form-error" id="err-new-folder" aria-live="polite"></p>
+  </form>
+</aside>
+{{end}}
+
+{{define "feed-nav"}}
+<li><a class="nav-item feed-row{{if .Active}} is-active{{end}}" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>
+  {{template "avatar" .Avatar}}
+  <span class="nav-label">{{.Title}}</span>
+  {{if .Warn}}<span class="feed-warn" title="{{if .LastError}}{{.LastError}}{{else}}Fetching keeps failing{{end}}">{{template "icon" "warn"}}<span class="sr-only">Fetching fails: {{.LastError}}</span></span>{{end}}
+  {{template "badge" .Badge}}
+</a></li>
+{{end}}
+
+{{define "badge"}}<span class="badge" id="{{.ID}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .N}}{{.N}}{{end}}</span>{{end}}
+
+{{define "sidebar-tags"}}
+<ul class="nav-list tag-list" id="sidebar-tags"{{if .OOB}} hx-swap-oob="true"{{end}}>
+  {{range .Tags}}
+  <li><a class="nav-item tag-row{{if .Active}} is-active{{end}}" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{template "icon" "tag"}}<span class="nav-label">{{.Name}}</span><span class="count">{{.Count}}</span></a></li>
+  {{else}}
+  <li class="nav-empty">Tags you add to entries appear here.</li>
+  {{end}}
+</ul>
+{{end}}
+
+{{/* Out-of-band sidebar refresh appended to every action response. */}}
+{{define "oob-counts"}}
+{{range .Badges}}{{template "badge" .}}
+{{end}}{{template "sidebar-tags" .Tags}}
+{{end}}
+
+{{define "avatar"}}<span class="avatar {{.Palette}}" aria-hidden="true">{{if .IconURL}}<img src="{{.IconURL}}" alt="" loading="lazy" decoding="async">{{else}}{{.Initials}}{{end}}</span>{{end}}

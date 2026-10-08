@@ -1,0 +1,34 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "JSON Example",
+  "home_page_url": "https://json.example.net/",
+  "feed_url": "https://json.example.net/feed.json",
+  "icon": "/icon-512.png",
+  "favicon": "/favicon-64.png",
+  "authors": [{"name": "Feed Author"}],
+  "items": [
+    {
+      "id": "2",
+      "url": "https://json.example.net/2",
+      "title": "HTML item",
+      "content_html": "<p>Hello <img src=\"/img/2.png\"></p><script>steal()</script>",
+      "date_published": "2026-10-02T10:00:00-05:00",
+      "date_modified": "2026-10-03T00:00:00Z",
+      "authors": [{"name": "Item Author"}]
+    },
+    {
+      "id": 1,
+      "url": "/1",
+      "content_text": "Microblog <b>post</b> without a title\nsecond line",
+      "date_published": "2026-10-01T10:00:00Z",
+      "image": "https://cdn.example.net/1.jpg"
+    },
+    {
+      "id": "3",
+      "external_url": "https://elsewhere.example.com/x",
+      "title": "Linkblog",
+      "summary": "A plain <summary> & stuff",
+      "content_html": "<p>Long version</p>"
+    }
+  ]
+}

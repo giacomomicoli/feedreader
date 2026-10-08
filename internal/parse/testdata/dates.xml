@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Dates</title>
+    <link>https://d.example.com/</link>
+    <description>date handling</description>
+    <item>
+      <title>From the future</title>
+      <guid>future</guid>
+      <pubDate>Thu, 01 Jan 2099 00:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>No dates at all</title>
+      <guid>none</guid>
+    </item>
+    <item>
+      <title>Dublin Core date only</title>
+      <guid>dc</guid>
+      <dc:date>2026-09-15T08:30:00+02:00</dc:date>
+    </item>
+    <item>
+      <title>Offset date</title>
+      <guid>offset</guid>
+      <pubDate>Fri, 02 Oct 2026 20:00:00 -0500</pubDate>
+    </item>
+    <item>
+      <title>Unparseable date</title>
+      <guid>garbage</guid>
+      <pubDate>sometime last week</pubDate>
+    </item>
+  </channel>
+</rss>

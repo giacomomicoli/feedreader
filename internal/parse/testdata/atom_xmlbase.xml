@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://atom.example.org/blog/">
+  <title type="html">Atom &lt;b&gt;Example&lt;/b&gt;</title>
+  <id>urn:uuid:60a76c80-d399-11d9-b93c-0003939e0af6</id>
+  <updated>2026-10-01T10:00:00Z</updated>
+  <link rel="self" href="feed.atom"/>
+  <link rel="alternate" href="./"/>
+  <icon>/favicon.ico</icon>
+  <logo>images/logo.png</logo>
+  <author><name>Feed Author</name></author>
+  <entry xml:base="posts/2026/">
+    <title>Relative everything</title>
+    <id>tag:atom.example.org,2026:1</id>
+    <link href="relative-everything.html"/>
+    <published>2026-10-01T09:00:00+02:00</published>
+    <updated>2026-10-01T10:00:00Z</updated>
+    <summary type="html">&lt;p&gt;See &lt;a href="related.html"&gt;this&lt;/a&gt; and &lt;img src="pic.jpg"&gt;&lt;/p&gt;</summary>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Body <a href="/root.html">root</a></p></div></content>
+  </entry>
+  <entry>
+    <title type="text">Text content &amp; no summary</title>
+    <id>tag:atom.example.org,2026:2</id>
+    <link rel="alternate" type="text/html" href="two.html"/>
+    <link rel="enclosure" href="two.mp3" length="1" type="audio/mpeg"/>
+    <updated>2026-09-30T10:00:00Z</updated>
+    <content type="text">Plain &lt;b&gt;text&lt;/b&gt; body</content>
+  </entry>
+</feed>

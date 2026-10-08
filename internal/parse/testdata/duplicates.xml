@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Duplicates</title>
+  <id>urn:example:dups</id>
+  <updated>2026-10-03T00:00:00Z</updated>
+  <entry>
+    <title>old</title>
+    <id>dup</id>
+    <updated>2026-10-01T00:00:00Z</updated>
+    <link href="https://dup.example.com/old"/>
+  </entry>
+  <entry>
+    <title>other</title>
+    <id>other</id>
+    <updated>2026-10-01T12:00:00Z</updated>
+    <link href="https://dup.example.com/other"/>
+  </entry>
+  <entry>
+    <title>newest</title>
+    <id>dup</id>
+    <updated>2026-10-03T00:00:00Z</updated>
+    <link href="https://dup.example.com/newest"/>
+  </entry>
+  <entry>
+    <title>middle</title>
+    <id>dup</id>
+    <updated>2026-10-02T00:00:00Z</updated>
+    <link href="https://dup.example.com/middle"/>
+  </entry>
+  <entry>
+    <title>first tie</title>
+    <id>tie</id>
+    <updated>2026-10-01T00:00:00Z</updated>
+    <link href="https://dup.example.com/tie1"/>
+  </entry>
+  <entry>
+    <title>second tie</title>
+    <id>tie</id>
+    <updated>2026-10-01T00:00:00Z</updated>
+    <link href="https://dup.example.com/tie2"/>
+  </entry>
+</feed>

@@ -1,0 +1,11 @@
+<rss version="2.0">
+<channel>
+<title>“Smart” quotes</title>
+<link>http://cp1252.example.com/</link>
+<description>cp1252</description>
+<item>
+<title>Price: € 10 – café</title>
+<link>http://cp1252.example.com/1</link>
+</item>
+</channel>
+</rss>

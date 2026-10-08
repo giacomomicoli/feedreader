@@ -1,0 +1,21 @@
+# Example Caddy site for feedreader; replace <feedreader-ip> with the address
+# feedreader listens on (FR_LISTEN).
+#
+# feedreader has NO authentication by design (single user, LAN only), so this
+# site block refuses every client that is not on a private network. Keep that
+# guard even if this Caddy instance also serves public sites: a DNS mistake
+# must not expose the reader to the internet. Remote access: use Tailscale
+# (its 100.64.0.0/10 range is not in private_ranges; add it explicitly).
+feeds.lan.example {
+	# A LAN-only name cannot get a public ACME certificate; use Caddy's
+	# internal CA (or your existing DNS-challenge setup instead).
+	tls internal
+
+	# reverse_proxy forwards Host: feeds.lan.example; list that name in
+	# FR_ALLOWED_HOSTS or feedreader answers 421.
+	@lan remote_ip private_ranges
+	handle @lan {
+		reverse_proxy <feedreader-ip>:8080
+	}
+	respond "Forbidden" 403
+}

@@ -1,0 +1,148 @@
+{{/* Home page: top bar for the current scope plus the card grid. */}}
+{{define "page-home"}}{{template "scope-view" .}}{{end}}
+
+{{define "scope-view"}}
+<div id="scope-view" class="scope-view">
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1 class="page-title">{{.Title}}</h1>
+      {{if .Subtitle}}<p class="topbar-sub">{{.Subtitle}}</p>{{end}}
+    </div>
+    {{if or .HasFeeds .IsFolder .IsTag}}
+    <div class="toolbar">
+      {{if .HasFeeds}}
+      {{if .ShowFilter}}
+      <nav class="segmented" aria-label="Show">
+        <a href="{{.UnreadHref}}"{{if .UnreadOnly}} class="is-active" aria-current="page"{{end}}>Unread</a>
+        <a href="{{.AllHref}}"{{if not .UnreadOnly}} class="is-active" aria-current="page"{{end}}>All</a>
+      </nav>
+      {{end}}
+      <form method="post" action="/mark-read" hx-post="/mark-read" hx-target="#scope-view" hx-swap="outerHTML">
+        <input type="hidden" name="scope" value="{{.Kind}}">
+        {{if .ID}}<input type="hidden" name="id" value="{{.ID}}">{{end}}
+        <input type="hidden" name="filter" value="{{.Filter}}">
+        <input type="hidden" name="up_to" value="{{.UpTo}}">
+        <button class="btn" type="submit">Mark all as read</button>
+      </form>
+      <form method="post" action="/refresh" hx-post="/refresh" hx-target="#notice" hx-swap="innerHTML">
+        <input type="hidden" name="scope" value="{{.Kind}}">
+        {{if .ID}}<input type="hidden" name="id" value="{{.ID}}">{{end}}
+        <input type="hidden" name="filter" value="{{.Filter}}">
+        <input type="hidden" name="back" value="{{.Href}}">
+        <button class="btn" type="submit">{{template "icon" "refresh"}}<span>Refresh</span></button>
+      </form>
+      {{if .IsFeed}}<a class="btn" href="{{.SettingsHref}}">Feed settings</a>{{end}}
+      {{end}}
+      {{/* Folder and tag actions do not depend on having feeds. */}}
+      {{if .IsFolder}}
+      <details class="popover">
+        <summary class="btn">Rename</summary>
+        <form class="popover-body" method="post" action="/folders/{{.ID}}/rename" hx-post="/folders/{{.ID}}/rename" hx-target="#err-folder-rename" hx-swap="innerHTML">
+          <label for="folder-name">Folder name</label>
+          <div class="input-row">
+            <input id="folder-name" name="name" type="text" value="{{.Title}}" required maxlength="{{maxName}}" autocomplete="off">
+            <button class="btn btn-primary" type="submit">Save</button>
+          </div>
+          <p class="form-error" id="err-folder-rename" aria-live="polite"></p>
+        </form>
+      </details>
+      <a class="btn btn-quiet-danger" href="/folders/{{.ID}}/delete" hx-get="/folders/{{.ID}}/delete" hx-target="#scope-confirm" hx-swap="innerHTML">Delete folder</a>
+      {{end}}
+      {{if .IsTag}}
+      <a class="btn btn-quiet-danger" href="/tags/{{.ID}}/delete" hx-get="/tags/{{.ID}}/delete" hx-target="#scope-confirm" hx-swap="innerHTML">Delete tag</a>
+      {{end}}
+    </div>
+    {{end}}
+  </header>
+  <div id="scope-confirm"></div>
+  {{template "grid" .Grid}}
+</div>
+{{end}}
+
+{{define "grid"}}
+<div class="grid" id="grid">
+  {{if .NoFeeds}}
+  <a class="card-cta" href="/add">
+    <span class="cta-mark">{{template "icon" "plus"}}</span>
+    <strong>Add your first source</strong>
+    <span>Paste a YouTube channel, a blog or a feed URL. Nothing is fetched until you do.</span>
+  </a>
+  {{else if .Cards}}
+  {{template "grid-items" .}}
+  {{else}}
+  <div class="grid-empty">
+    <p class="grid-empty-title">{{.EmptyText}}</p>
+    {{if .EmptyHint}}<p>{{.EmptyHint}}</p>{{end}}
+    {{if .EmptyLink}}<p><a href="{{.EmptyLink}}">Show read entries too</a></p>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{/* Cards plus the next "Load more" button; also the /entries fragment. */}}
+{{define "grid-items"}}{{range .Cards}}{{template "card" .}}
+{{end}}{{with .More}}{{template "load-more" .}}{{end}}{{end}}
+
+{{define "load-more"}}
+<div class="load-more">
+  <a class="btn" href="{{.Href}}" hx-get="{{.HxHref}}" hx-target="closest .load-more" hx-swap="outerHTML">Load more</a>
+</div>
+{{end}}
+
+{{define "card"}}
+<article class="card{{if .IsRead}} is-read{{end}}" id="entry-{{.ID}}" hx-target="this" hx-swap="outerHTML">
+  <a class="card-thumb {{.Avatar.Palette}}"{{if .Href}} href="{{.Href}}" target="_blank" rel="noopener noreferrer"{{end}} tabindex="-1" aria-hidden="true">
+    {{if .Thumb}}<img class="{{if .ThumbIsIcon}}thumb-icon{{else}}thumb-image{{end}}" src="{{.Thumb}}" alt="" loading="lazy" decoding="async">
+    {{else}}<span class="thumb-initials">{{.Avatar.Initials}}</span>{{end}}
+  </a>
+  <div class="card-body">
+    <div class="card-text">
+      <h3 class="card-title"><a{{if .Href}} href="{{.Href}}" target="_blank" rel="noopener noreferrer"{{end}}{{if .Excerpt}} title="{{.Excerpt}}"{{end}}>{{.Title}}</a></h3>
+      <a class="card-source" href="{{.FeedHref}}">{{template "avatar" .Avatar}}<span>{{.FeedTitle}}</span></a>
+      <p class="card-meta">
+        <time datetime="{{.ISOTime}}" title="{{.AbsTime}}">{{.RelTime}}</time>
+        <span class="status{{if not .IsRead}} is-unread{{end}}">{{.StatusLabel}}</span>
+        {{if .IsLater}}<span class="flag" title="In {{.LaterLabel}}">{{if eq .Kind "youtube"}}{{template "icon" "later"}}{{else}}{{template "icon" "bookmark"}}{{end}}<span class="sr-only">In {{.LaterLabel}}</span></span>{{end}}
+        {{if .IsFavourite}}<span class="flag flag-fav" title="Favourite">{{template "icon" "star"}}<span class="sr-only">Favourite</span></span>{{end}}
+      </p>
+      {{if .Tags}}<ul class="card-tags">{{range .Tags}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>{{end}}
+      {{if .Excerpt}}<details class="card-summary"><summary>Summary</summary><p>{{.Excerpt}}</p></details>{{end}}
+    </div>
+    {{template "card-menu" .}}
+  </div>
+</article>
+{{end}}
+
+{{define "card-menu"}}
+<details class="card-menu">
+  <summary class="icon-btn" title="Actions">{{template "icon" "more"}}<span class="sr-only">Actions for {{.Title}}</span></summary>
+  <div class="menu">
+    {{range .Actions}}
+    <form method="post" action="{{.Path}}" hx-post="{{.Path}}">
+      <input type="hidden" name="back" value="{{$.Back}}">
+      <button class="menu-item" type="submit">{{.Label}}</button>
+    </form>
+    {{end}}
+    <form class="menu-tag" method="post" action="/entries/{{.ID}}/tags" hx-post="/entries/{{.ID}}/tags">
+      <input type="hidden" name="back" value="{{.Back}}">
+      <label class="sr-only" for="tag-input-{{.ID}}">Add tag</label>
+      <input id="tag-input-{{.ID}}" name="tag" type="text" list="tag-options-{{.ID}}" placeholder="Add tag" required maxlength="{{maxName}}" autocomplete="off"
+        hx-get="/tags/suggest" hx-trigger="input changed delay:250ms" hx-target="#tag-options-{{.ID}}" hx-swap="innerHTML" hx-sync="this:replace">
+      <datalist id="tag-options-{{.ID}}"></datalist>
+      <button class="btn btn-small" type="submit">Add</button>
+    </form>
+    {{if .Tags}}
+    <ul class="menu-tags">
+      {{range .Tags}}
+      <li><form method="post" action="{{.RemovePath}}" hx-post="{{.RemovePath}}">
+        <input type="hidden" name="back" value="{{$.Back}}">
+        <button class="chip" type="submit" title="Remove tag {{.Name}}"><span>{{.Name}}</span><span aria-hidden="true">×</span><span class="sr-only">Remove tag {{.Name}}</span></button>
+      </form></li>
+      {{end}}
+    </ul>
+    {{end}}
+  </div>
+</details>
+{{end}}
+
+{{define "tag-options"}}{{range .}}<option value="{{.Name}}"></option>{{end}}{{end}}
