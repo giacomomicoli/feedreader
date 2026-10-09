@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 )
 
 // fakeFetcher serves canned responses by exact URL and records every
@@ -45,7 +46,7 @@ func (f *fakeFetcher) Fetch(ctx context.Context, r fetch.Request) (*fetch.Result
 		return nil, err
 	}
 	if !ok {
-		return nil, &fetch.StatusError{URL: r.URL, StatusCode: http.StatusNotFound}
+		return nil, &fetch.StatusError{URL: safeurl.String(r.URL), StatusCode: http.StatusNotFound}
 	}
 	if rt.err != nil {
 		return nil, rt.err

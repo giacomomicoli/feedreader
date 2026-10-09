@@ -607,3 +607,102 @@ func TestFormatBytes(t *testing.T) {
 		}
 	}
 }
+
+// TestFetch_ErrorsNeverShowURLCredentials: a feed URL's user name can be a
+// token on its own; error messages end up in logs and in last_error.
+func TestFetch_ErrorsNeverShowURLCredentials(t *testing.T) {
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/loop":
+			http.Redirect(w, r, "http://tok3n@"+r.Host+"/loop", http.StatusFound)
+		default:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	})
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	withCreds := func(base, userinfo, path string) string {
+		return strings.Replace(base, "://", "://"+userinfo+"@", 1) + path
+	}
+	c := newTestClient(t, 1<<20)
+	for _, userinfo := range []string{"tok3n", "reader:s3cret"} {
+		for name, raw := range map[string]string{
+			"status":      withCreds(srv.URL, userinfo, "/feed"),
+			"redirect":    withCreds(srv.URL, userinfo, "/loop"),
+			"unreachable": withCreds(closed.URL, userinfo, "/feed"),
+			"scheme":      "ftp://" + userinfo + "@files.example/feed",
+			"no host":     "https://" + userinfo + "@/feed",
+			"unparsable":  "https://" + userinfo + "@[::1/feed",
+			// Parses, but its String() does not: net/http would quote it.
+			"zone":           "https://" + userinfo + "@[fe80::1%25é]/feed",
+			"empty hostname": "http://" + userinfo + "@:8080/feed",
+		} {
+			_, err := c.Fetch(t.Context(), Request{URL: raw})
+			if err == nil {
+				t.Fatalf("%s %s: no error", userinfo, name)
+			}
+			msg := err.Error()
+			var se *StatusError
+			if errors.As(err, &se) {
+				msg += " " + se.URL
+			}
+			for _, secret := range []string{"tok3n", "reader", "s3cret"} {
+				if strings.Contains(msg, secret) {
+					t.Errorf("%s %s: %q shows %q", userinfo, name, msg, secret)
+				}
+			}
+		}
+	}
+	// A password with '#', '?' or '/' in it makes url.Parse read it as a
+	// port, and its error quotes that port.
+	for _, raw := range []string{
+		"https://reader:s3cret#x@files.example/feed",
+		"https://reader:s3cret?x@files.example/feed",
+		"https://reader:s3/cret@files.example/feed",
+	} {
+		_, err := c.Fetch(t.Context(), Request{URL: raw})
+		if err == nil || strings.Contains(err.Error(), "s3") {
+			t.Errorf("%s: err = %v; want an error without the password", raw, err)
+		}
+	}
+}
+
+func TestFetch_URLWithoutHostNameIsRefusedWithoutRequest(t *testing.T) {
+	c := newTestClient(t, 1<<20)
+	c.hc.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("transport reached")
+		return nil, errors.New("unreachable")
+	})
+	for _, raw := range []string{"http://:8080/feed", "https:///feed"} {
+		if _, err := c.Fetch(t.Context(), Request{URL: raw}); err == nil || !strings.Contains(err.Error(), "missing host") {
+			t.Errorf("%s: err = %v; want missing host", raw, err)
+		}
+	}
+}
+
+func TestFetch_RedirectToURLWithoutHostNameIsRefused(t *testing.T) {
+	var dialed bool
+	local := newServer(t, func(w http.ResponseWriter, r *http.Request) { dialed = true })
+	port := local.URL[strings.LastIndex(local.URL, ":"):]
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://tok3n@"+port+"/feed", http.StatusMovedPermanently)
+	})
+	c := newTestClient(t, 1<<20)
+	_, err := c.Fetch(t.Context(), Request{URL: srv.URL + "/feed"})
+	if err == nil || !strings.Contains(err.Error(), "without a host name") || strings.Contains(err.Error(), "tok3n") {
+		t.Errorf("err = %v; want a refused redirect without the user name", err)
+	}
+	if dialed {
+		t.Error("the host-less redirect target was fetched")
+	}
+}
+
+func TestFetch_InvalidURLMessagesNameFetchOnce(t *testing.T) {
+	c := newTestClient(t, 1<<20)
+	for _, raw := range []string{"https://tok3n@[::1/feed", "https://tok3n@[fe80::1%25é]/feed", "http://:8080/feed"} {
+		_, err := c.Fetch(t.Context(), Request{URL: raw})
+		if err == nil || strings.Count(err.Error(), "fetch") != 1 || !strings.Contains(err.Error(), "invalid URL") {
+			t.Errorf("%s: err = %v; want one \"fetch\" and \"invalid URL\"", raw, err)
+		}
+	}
+}

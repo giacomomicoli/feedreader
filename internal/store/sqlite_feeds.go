@@ -4,21 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	neturl "net/url"
 	"strings"
 	"time"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 )
 
-// redactURL hides the password of a feed URL (https://user:xxxxx@host/…) in
-// error messages, which end up in logs; feed URLs may embed credentials.
+// redactURL hides the credentials of a feed URL, its whole userinfo
+// (https://xxxxx@host/…), in error messages, which end up in logs; feed URLs
+// may embed a user name and password, or a token as the user name. See
+// safeurl.
 func redactURL(raw string) string {
-	u, err := neturl.Parse(raw)
-	if err != nil {
-		return "(invalid URL)"
-	}
-	return u.Redacted()
+	return safeurl.String(raw)
 }
 
 // feedCols is the column list scanFeed expects, in order.
@@ -115,7 +113,8 @@ func (s *SQLite) GetFeedByURL(ctx context.Context, url string) (Feed, error) {
 // read with read_at = f.FetchedAt. Entries sharing a GUID are collapsed (last
 // one wins). Returns ErrConflict if the URL exists, ErrNotFound if FolderID
 // does not exist and ErrInvalid for an unknown kind, an empty URL or an entry
-// without a GUID. An empty Title falls back to OriginalTitle, then to URL.
+// without a GUID. An empty Title falls back to OriginalTitle, then to URL
+// (without its credentials).
 func (s *SQLite) CreateFeed(ctx context.Context, f NewFeed, entries []NewEntry, initialUnread int) (Feed, error) {
 	if err := validateNewFeed(f); err != nil {
 		return Feed{}, fmt.Errorf("store: create feed: %w", err)
@@ -170,14 +169,15 @@ func validateNewFeed(f NewFeed) error {
 	return nil
 }
 
-// feedTitle picks the stored title: the user's, else the feed's, else its URL.
+// feedTitle picks the stored title: the user's, else the feed's, else its URL
+// without its credentials.
 func feedTitle(f NewFeed) string {
 	for _, t := range []string{f.Title, f.OriginalTitle} {
 		if t = strings.TrimSpace(t); t != "" {
 			return t
 		}
 	}
-	return f.URL
+	return safeurl.String(f.URL) // titles are shown and logged
 }
 
 // insertInitialEntries stores the entries of a newly created feed. Entries

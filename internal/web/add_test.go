@@ -12,6 +12,7 @@ import (
 	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/fetch"
 	"github.com/giacomomicoli/feedreader/internal/resolve"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 	"github.com/giacomomicoli/feedreader/internal/sched"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
@@ -388,26 +389,45 @@ func TestRollbackUsesAtomicConditionalDeleteWhenAvailable(t *testing.T) {
 	}
 }
 
-// TestFeedURLPasswordsAreRedactedInLogs: feed URLs may embed credentials;
-// logs are shipped and pasted into bug reports, unlike the database.
-func TestFeedURLPasswordsAreRedactedInLogs(t *testing.T) {
-	e := newTestEnv(t)
-	logs := e.captureLogs()
-	const secretURL = "https://jack:s3cret@private.example/feed.xml"
-	e.stubPreview(secretURL, "Private", store.KindRSS, 1)
+// TestFeedURLCredentialsAreRedactedInLogs: feed URLs may embed credentials,
+// a user name and password or a user name alone (a token); logs are shipped
+// and pasted into bug reports, unlike the database.
+func TestFeedURLCredentialsAreRedactedInLogs(t *testing.T) {
+	for _, secretURL := range []string{
+		"https://jack:s3cret@private.example/feed.xml",
+		"https://s3cret@private.example/feed.xml",
+	} {
+		t.Run(secretURL, func(t *testing.T) {
+			e := newTestEnv(t)
+			logs := e.captureLogs()
+			e.stubPreview(secretURL, "Private", store.KindRSS, 1)
 
-	wantStatus(t, e.post("/add/subscribe", url.Values{"feed_url": {secretURL}, "folder": {"0"}}, htmx), http.StatusOK)
-	f, err := e.st.GetFeedByURL(context.Background(), secretURL)
-	if err != nil {
-		t.Fatal(err)
+			wantStatus(t, e.post("/add/subscribe", url.Values{"feed_url": {secretURL}, "folder": {"0"}}, htmx), http.StatusOK)
+			f, err := e.st.GetFeedByURL(context.Background(), secretURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantStatus(t, e.post("/feeds/"+idStr(f.ID)+"/unsubscribe", nil), http.StatusSeeOther)
+			e.sched.subscribeErr = errors.New("disk on fire")
+			wantStatus(t, e.post("/add/subscribe", url.Values{"feed_url": {secretURL}, "folder": {"0"}}, htmx), http.StatusInternalServerError)
+
+			out := logs.String()
+			wantContains(t, out, "msg=subscribed", "msg=unsubscribed", "disk on fire", safeurl.Placeholder+"@private.example")
+			if strings.Contains(out, "s3cret") || strings.Contains(out, "jack") {
+				t.Errorf("credentials in logs:\n%s", out)
+			}
+		})
 	}
-	wantStatus(t, e.post("/feeds/"+idStr(f.ID)+"/unsubscribe", nil), http.StatusSeeOther)
-	e.sched.subscribeErr = errors.New("disk on fire")
-	wantStatus(t, e.post("/add/subscribe", url.Values{"feed_url": {secretURL}, "folder": {"0"}}, htmx), http.StatusInternalServerError)
+}
 
-	out := logs.String()
-	wantContains(t, out, "msg=subscribed", "msg=unsubscribed", "disk on fire", "jack:xxxxx@private.example")
-	if strings.Contains(out, "s3cret") {
-		t.Errorf("password in logs:\n%s", out)
+func TestAddDirectFeedURLWithoutHostNameIsInvalid(t *testing.T) {
+	e := newTestEnv(t)
+	for _, raw := range []string{"http://:8080/feed", "http://tok3n@:8080/feed"} {
+		w := e.post("/add/preview", url.Values{"feed_url": {raw}}, htmx)
+		wantStatus(t, w, http.StatusUnprocessableEntity)
+		wantContains(t, w.Body.String(), resolve.ErrInvalidURL.Error())
+		if len(e.sched.previewCalls) != 0 {
+			t.Errorf("%s: previewed %v", raw, e.sched.previewCalls)
+		}
 	}
 }

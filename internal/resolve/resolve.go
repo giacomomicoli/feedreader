@@ -13,6 +13,7 @@ import (
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
 	"github.com/giacomomicoli/feedreader/internal/parse"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -101,7 +102,7 @@ func (r *Resolver) resolveGeneric(ctx context.Context, u *url.URL) (*Result, err
 	input := u.String()
 	page, pageErr := r.fetch(ctx, input, fetch.FeedAccept)
 	if pageErr != nil && !isURLLevelError(pageErr) {
-		return nil, fmt.Errorf("resolve %s: %w", u.Redacted(), pageErr)
+		return nil, fmt.Errorf("resolve %s: %w", safeurl.Redacted(u), pageErr)
 	}
 	probed := map[string]bool{input: true}
 	site := u
@@ -117,14 +118,14 @@ func (r *Resolver) resolveGeneric(ctx context.Context, u *url.URL) (*Result, err
 	c, found, err := r.probeFallbacks(ctx, site, probed)
 	switch {
 	case err != nil:
-		return nil, fmt.Errorf("resolve %s: %w", u.Redacted(), err)
+		return nil, fmt.Errorf("resolve %s: %w", safeurl.Redacted(u), err)
 	case found:
 		return single(c), nil
 	case pageErr != nil:
 		// Step 5, keeping the page's own failure for the logs.
-		return nil, fmt.Errorf("resolve %s: %w (page: %w)", u.Redacted(), ErrNoFeed, pageErr)
+		return nil, fmt.Errorf("resolve %s: %w (page: %w)", safeurl.Redacted(u), ErrNoFeed, pageErr)
 	default:
-		return nil, fmt.Errorf("resolve %s: %w", u.Redacted(), ErrNoFeed)
+		return nil, fmt.Errorf("resolve %s: %w", safeurl.Redacted(u), ErrNoFeed)
 	}
 }
 
@@ -158,7 +159,7 @@ func (r *Resolver) fetch(ctx context.Context, rawURL, accept string) (*fetch.Res
 		return nil, err
 	}
 	if res == nil {
-		return nil, fmt.Errorf("fetch %s: no result", rawURL)
+		return nil, fmt.Errorf("fetch %s: no result", safeurl.String(rawURL))
 	}
 	return res, nil
 }

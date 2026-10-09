@@ -484,3 +484,31 @@ func asViews(entries []NewEntry) []EntryView {
 	}
 	return out
 }
+
+func TestFeedErrorsNeverShowURLCredentials(t *testing.T) {
+	s := openTest(t)
+	for _, u := range []string{"https://tok3n@a.example/feed", "https://reader:s3cret@b.example/feed"} {
+		mustCreateFeed(t, s, newFeed(u, KindRSS), nil, config.InitialUnread)
+		_, err := s.CreateFeed(t.Context(), newFeed(u, KindRSS), nil, config.InitialUnread)
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("err = %v, want ErrConflict", err)
+		}
+		for _, secret := range []string{"tok3n", "reader", "s3cret"} {
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("%q shows %q", err, secret)
+			}
+		}
+	}
+}
+
+// TestFeedTitleFallbackNeverShowsURLCredentials: a feed with no title
+// falls back to its URL, and titles are shown and logged.
+func TestFeedTitleFallbackNeverShowsURLCredentials(t *testing.T) {
+	s := openTest(t)
+	nf := newFeed("https://tok3n@a.example/feed", KindRSS)
+	nf.Title, nf.OriginalTitle = "", ""
+	f := mustCreateFeed(t, s, nf, nil, config.InitialUnread)
+	if strings.Contains(f.Title, "tok3n") || f.Title == "" {
+		t.Errorf("title = %q; want the URL without its credentials", f.Title)
+	}
+}

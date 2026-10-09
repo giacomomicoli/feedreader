@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
@@ -495,6 +496,27 @@ func TestKindForURL(t *testing.T) {
 	} {
 		if got := KindForURL(tc.url); got != tc.want {
 			t.Errorf("KindForURL(%q) = %q; want %q", tc.url, got, tc.want)
+		}
+	}
+}
+
+// noResultFetcher answers every request with neither a result nor an error.
+type noResultFetcher struct{}
+
+func (noResultFetcher) Fetch(context.Context, fetch.Request) (*fetch.Result, error) { return nil, nil }
+
+func TestResolve_ErrorsNeverShowURLCredentials(t *testing.T) {
+	for _, raw := range []string{"https://tok3n@nofeed.example/", "https://reader:s3cret@nofeed.example/"} {
+		for name, f := range map[string]Fetcher{"no feed": newFake(), "no result": noResultFetcher{}} {
+			_, err := New(f).Resolve(context.Background(), raw)
+			if err == nil {
+				t.Fatalf("%s %s: no error", raw, name)
+			}
+			for _, secret := range []string{"tok3n", "reader", "s3cret"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Errorf("%s %s: %q shows %q", raw, name, err, secret)
+				}
+			}
 		}
 	}
 }

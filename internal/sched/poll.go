@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
 	"github.com/giacomomicoli/feedreader/internal/parse"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -264,11 +264,8 @@ func newEntries(list []parse.Entry, fetchedAt time.Time) []store.NewEntry {
 	return out
 }
 
-// redact hides the password of a URL for logs and error messages.
+// redact hides the credentials of a URL (its whole userinfo) for logs and
+// error messages; see safeurl.
 func redact(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "(invalid URL)"
-	}
-	return u.Redacted()
+	return safeurl.String(raw)
 }

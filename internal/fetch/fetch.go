@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 )
 
 // FeedAccept is the Accept header sent when fetching feeds.
@@ -62,6 +63,10 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("HTTP %d from %s", e.StatusCode, e.URL)
 }
 
+// errInvalidURL is a request or redirect URL that cannot be fetched as it
+// is written.
+var errInvalidURL = errors.New("invalid URL")
+
 var (
 	// ErrTooLarge: the (decompressed) body exceeded the configured cap.
 	ErrTooLarge = errors.New("response body exceeds size limit")
@@ -80,7 +85,9 @@ const drainLimit = 4 << 10
 // Errors are kept short and human-readable because callers store them as a
 // feed's last_error: "fetch <url>: <reason>" for transport, redirect, size
 // and timeout failures, and *StatusError ("HTTP 404 from <url>") for
-// unexpected statuses. URLs in messages have their password redacted. The
+// unexpected statuses. URLs in messages have their whole userinfo (user
+// name and password) replaced by safeurl.Placeholder, and a URL that does
+// not parse is not shown at all. The
 // sentinels ErrScheme, ErrRedirects and ErrTooLarge, as well as
 // context.Canceled and context.DeadlineExceeded, match via errors.Is.
 type Client struct {
@@ -134,13 +141,17 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	display := target.Redacted()
+	display := safeurl.Redacted(target)
 
 	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	req, err := c.newRequest(reqCtx, target, r)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // its URL is shown whole, credentials included
+		}
 		return nil, fmt.Errorf("fetch %s: %w", display, err)
 	}
 	resp, err := c.hc.Do(req)
@@ -162,7 +173,7 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*Result, error) {
 	default:
 		drain(resp.Body)
 		return nil, &StatusError{
-			URL:        finalURL.Redacted(),
+			URL:        safeurl.Redacted(finalURL),
 			StatusCode: resp.StatusCode,
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), c.now()),
 		}
@@ -204,17 +215,23 @@ func parseTarget(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
 	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return nil, fmt.Errorf("fetch: invalid URL %q: %w", raw, err)
+		// Neither raw nor the parser's error is shown: both may quote
+		// credentials (a password holding '#' reads as a port), and without
+		// a parsed URL they cannot be told apart from the rest.
+		return nil, fmt.Errorf("fetch: %w", errInvalidURL)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("fetch %s: %w", u.Redacted(), ErrScheme)
+		return nil, fmt.Errorf("fetch %s: %w", safeurl.Redacted(u), ErrScheme)
 	}
-	if u.Host == "" {
-		return nil, fmt.Errorf("fetch %s: invalid URL: missing host", u.Redacted())
+	if u.Hostname() == "" {
+		// Not just an empty Host: "http://:8080/" would dial this machine.
+		return nil, fmt.Errorf("fetch %s: %w: missing host", safeurl.Redacted(u), errInvalidURL)
+	}
+	// The request is built from u.String(), and net/http quotes a string
+	// that does not parse whole, credentials included: refuse a URL that
+	// does not survive the round trip (a non-ASCII IPv6 zone) here.
+	if _, err := url.Parse(u.String()); err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", safeurl.Redacted(u), errInvalidURL)
 	}
 	return u, nil
 }

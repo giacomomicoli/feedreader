@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 )
 
 // YouTube feed URLs.
@@ -148,7 +149,7 @@ func (r *Resolver) resolveYouTube(ctx context.Context, u *url.URL, ref ytRef) (*
 		}
 		return single(Candidate{URL: channelFeedURL(id), IconURL: avatar}), nil
 	default:
-		return nil, fmt.Errorf("resolve %s: %w", u.Redacted(), ErrYouTubeID)
+		return nil, fmt.Errorf("resolve %s: %w", safeurl.Redacted(u), ErrYouTubeID)
 	}
 }
 
