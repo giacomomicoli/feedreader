@@ -291,6 +291,9 @@ type Store interface {
 	// UpdateFeedURL stores a permanently redirected feed URL. Returns
 	// ErrConflict if another feed already uses that URL.
 	UpdateFeedURL(ctx context.Context, id int64, url string) error
+	// SetFeedIcon stores an icon found for the feed outside its document (a
+	// YouTube channel's avatar). Polls keep it while the document has none.
+	SetFeedIcon(ctx context.Context, id int64, iconURL string) error
 
 	// --- Entries ---
 

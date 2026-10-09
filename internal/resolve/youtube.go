@@ -305,11 +305,58 @@ func channelIDFromChannelURL(href string, base *url.URL) string {
 // URL, or "".
 func channelIDFromFeedURL(href string, base *url.URL) string {
 	u, err := base.Parse(trimHTMLSpace(href))
-	if err != nil || !isHTTPURL(u) || !isYouTubeHost(u) || u.Path != ytFeedPath {
+	if err != nil {
+		return ""
+	}
+	return channelIDOfFeed(u)
+}
+
+// channelIDOfFeed returns the channel_id of u when it is a YouTube channel
+// feed URL, or "".
+func channelIDOfFeed(u *url.URL) string {
+	if !isHTTPURL(u) || !isYouTubeHost(u) || u.Path != ytFeedPath {
 		return ""
 	}
 	if id := u.Query().Get("channel_id"); channelIDPattern.MatchString(id) {
 		return id
 	}
 	return ""
+}
+
+// IsChannelFeed reports whether feedURL is the video feed of a YouTube
+// channel (youtube.com/feeds/videos.xml?channel_id=UC…), as opposed to a
+// playlist's or any other feed.
+func IsChannelFeed(feedURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(feedURL))
+	return err == nil && channelIDOfFeed(u) != ""
+}
+
+// ChannelAvatar returns the avatar of the YouTube channel whose video feed
+// is feedURL, read from the channel's page (youtube.com/channel/UC…) with
+// one request; see channelFromHTML. It is best-effort: "" when the page has
+// no usable avatar or is not that channel's page. For a feed that is not a
+// channel feed (IsChannelFeed) it returns "" without a request. Errors are
+// those of the fetch.
+func (r *Resolver) ChannelAvatar(ctx context.Context, feedURL string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(feedURL))
+	if err != nil {
+		return "", nil
+	}
+	id := channelIDOfFeed(u)
+	if id == "" {
+		return "", nil
+	}
+	page := ytPageURL("channel", id)
+	pageURL, err := url.Parse(page)
+	if err != nil {
+		return "", fmt.Errorf("channel avatar %s: %w", page, err)
+	}
+	res, err := r.fetch(ctx, page, fetch.HTMLAccept)
+	if err != nil {
+		return "", fmt.Errorf("channel avatar %s: %w", page, err)
+	}
+	if got, avatar, ok := channelFromHTML(res.Body, finalURL(res, pageURL)); ok && got == id {
+		return avatar, nil
+	}
+	return "", nil
 }

@@ -291,6 +291,76 @@ func TestResolve_YouTube_AvatarOnlyFromAPageServedByYouTube(t *testing.T) {
 	}
 }
 
+func TestChannelAvatar_FetchesTheChannelPageOfAChannelFeed(t *testing.T) {
+	const page = "https://www.youtube.com/channel/" + ytChannelID
+	f := newFake()
+	f.serve(page, ctHTML, ytHandlePage(canonicalLink(ytChannelID)+ogImage(ytAvatar900)))
+	avatar, err := New(f).ChannelAvatar(context.Background(), ytChannelFeed)
+	if err != nil || avatar != ytAvatarSmall {
+		t.Errorf("ChannelAvatar = %q, %v; want %q", avatar, err, ytAvatarSmall)
+	}
+	reqs := f.requests()
+	if len(reqs) != 1 || reqs[0].URL != page || reqs[0].Accept != fetch.HTMLAccept {
+		t.Errorf("requests = %+v; want one HTML request for %s", reqs, page)
+	}
+}
+
+func TestChannelAvatar_BestEffort(t *testing.T) {
+	const page = "https://www.youtube.com/channel/" + ytChannelID
+	for _, tc := range []struct{ name, body string }{
+		{"no avatar", ytHandlePage(canonicalLink(ytChannelID))},
+		{"another channel's page", ytHandlePage(canonicalLink(ytOtherID) + ogImage(ytAvatar900))},
+		{"no channel ID", ytHandlePage(ogImage(ytAvatar900))},
+		{"consent interstitial", `<html><body><form action="https://consent.youtube.com/save"></form></body></html>`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			f.serve(page, ctHTML, tc.body)
+			if avatar, err := New(f).ChannelAvatar(context.Background(), ytChannelFeed); avatar != "" || err != nil {
+				t.Errorf("ChannelAvatar = %q, %v; want none", avatar, err)
+			}
+		})
+	}
+	t.Run("page gone", func(t *testing.T) {
+		var se *fetch.StatusError
+		if avatar, err := New(newFake()).ChannelAvatar(context.Background(), ytChannelFeed); avatar != "" || !errors.As(err, &se) {
+			t.Errorf("ChannelAvatar = %q, %v; want the HTTP error", avatar, err)
+		}
+	})
+	t.Run("network failure", func(t *testing.T) {
+		f := newFake()
+		f.fail(page, errUnreachable)
+		if avatar, err := New(f).ChannelAvatar(context.Background(), ytChannelFeed); avatar != "" || !errors.Is(err, errUnreachable) {
+			t.Errorf("ChannelAvatar = %q, %v; want the network error", avatar, err)
+		}
+	})
+}
+
+func TestChannelAvatar_OtherFeedsWithoutRequest(t *testing.T) {
+	for _, feedURL := range []string{
+		"https://www.youtube.com/feeds/videos.xml?playlist_id=PLOU2XLYxmsIIM9h1Ybw2DuRw6o2fkNMeR",
+		"https://www.youtube.com/feeds/videos.xml?user=GoogleDevelopers",
+		"https://www.youtube.com/feeds/videos.xml?channel_id=UC_short",
+		"https://youtube.com.evil.example/feeds/videos.xml?channel_id=" + ytChannelID,
+		"https://blog.example.com/feed.xml",
+		"javascript:alert(1)",
+		"",
+	} {
+		if IsChannelFeed(feedURL) {
+			t.Errorf("IsChannelFeed(%q) = true", feedURL)
+		}
+		f := newFake()
+		if avatar, err := New(f).ChannelAvatar(context.Background(), feedURL); avatar != "" || err != nil || len(f.urls()) != 0 {
+			t.Errorf("ChannelAvatar(%q) = %q, %v after %d requests; want none", feedURL, avatar, err, len(f.urls()))
+		}
+	}
+	for _, feedURL := range []string{ytChannelFeed, "http://m.youtube.com/feeds/videos.xml?channel_id=" + ytChannelID + "&x=1"} {
+		if !IsChannelFeed(feedURL) {
+			t.Errorf("IsChannelFeed(%q) = false", feedURL)
+		}
+	}
+}
+
 func TestSmallAvatar(t *testing.T) {
 	px := "=s" + strconv.Itoa(ytAvatarPx)
 	for _, tc := range []struct{ in, want string }{

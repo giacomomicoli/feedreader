@@ -29,6 +29,8 @@ var errNoResult = errors.New("fetch returned no response")
 //     (raised by the <ttl> stored from the last document and max-age);
 //   - 200: the document is parsed and its entries upserted, new ones
 //     unread; validators and feed metadata are refreshed;
+//   - after a stored 304 or 200, a YouTube channel feed that still has no
+//     icon gets its channel's avatar (see backfillAvatar);
 //   - 301/308 ending in a 304 or a parseable feed: the stored URL follows
 //     the permanent redirect (kept when another feed already uses the new
 //     URL). A redirect to anything else is recorded as that failure and the
@@ -71,9 +73,13 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 			f.URL = s.followPermanentRedirect(ctx, f, res.PermanentURL)
 		}
 		next := fetchedAt.Add(withHints(base, storedTTL(f), res.MaxAge))
-		return s.checkStored(ctx, f, next, s.writeFeed(ctx, f, func(cur store.Feed) error {
+		err := s.writeFeed(ctx, f, func(cur store.Feed) error {
 			return s.st.RecordNotModified(ctx, f.ID, fetchedAt, keepRequested(f, cur, next))
-		}))
+		})
+		if err == nil {
+			s.backfillAvatar(ctx, f)
+		}
+		return s.checkStored(ctx, f, next, err)
 	}
 
 	doc, err := parse.Parse(res.Body, res.ContentType, cmp.Or(res.FinalURL, f.URL))
@@ -112,6 +118,9 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 	}
 	if inserted > 0 {
 		s.log.Info("new entries", "feed", f.ID, "title", f.Title, "count", inserted)
+	}
+	if doc.IconURL == "" {
+		s.backfillAvatar(ctx, f)
 	}
 	return time.Time{}
 }

@@ -3,6 +3,7 @@ package resolve
 import (
 	"context"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,11 @@ func FuzzResolveInput(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, raw string) {
+		if IsChannelFeed(raw) {
+			if u, err := url.Parse(strings.TrimSpace(raw)); err != nil || !isHTTPURL(u) || !isYouTubeHost(u) {
+				t.Fatalf("IsChannelFeed(%q) for a URL that is not on YouTube", raw)
+			}
+		}
 		res, err := New(newFake()).Resolve(context.Background(), raw)
 		if err != nil {
 			return

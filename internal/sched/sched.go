@@ -98,6 +98,11 @@ type Scheduler struct {
 	unholdMu  sync.Mutex
 	unhold    map[int64]struct{}
 	unholdAll bool
+
+	// avatarTried holds the channel feed URLs whose page a poll has fetched
+	// for an avatar in this run (see backfillAvatar).
+	avatarMu    sync.Mutex
+	avatarTried map[string]struct{}
 }
 
 // New creates a scheduler. It makes no HTTP request until Run is called and
@@ -117,15 +122,16 @@ func New(st store.Store, f Fetcher, cfg config.Config, log *slog.Logger) *Schedu
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &Scheduler{
-		st:       st,
-		fetcher:  f,
-		cfg:      cfg,
-		log:      log,
-		now:      time.Now,
-		wake:     make(chan struct{}, 1),
-		cache:    newPreviewCache(previewCacheTTL, previewCacheMax),
-		addSlots: make(chan struct{}, addFetchSlots),
-		unhold:   make(map[int64]struct{}),
+		st:          st,
+		fetcher:     f,
+		cfg:         cfg,
+		log:         log,
+		now:         time.Now,
+		wake:        make(chan struct{}, 1),
+		cache:       newPreviewCache(previewCacheTTL, previewCacheMax),
+		addSlots:    make(chan struct{}, addFetchSlots),
+		unhold:      make(map[int64]struct{}),
+		avatarTried: make(map[string]struct{}),
 	}
 }
 
@@ -265,9 +271,11 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 //
 // The stored URL is the final feed URL (after permanent redirects). The
 // title is sub.Title, else the feed's own title, else the URL's host. The
-// icon is the feed's own, else sub.IconURL. The first poll is scheduled
-// one interval (raised by the feed's <ttl> and Cache-Control max-age hints)
-// after now.
+// icon is the feed's own, else sub.IconURL, else for a YouTube channel feed
+// the avatar on the channel's page, looked up with one more request once
+// the subscription is stored (see lookupAvatar). The first poll is
+// scheduled one interval (raised by the feed's <ttl> and Cache-Control
+// max-age hints) after now.
 func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed, error) {
 	feedURL := strings.TrimSpace(sub.FeedURL)
 	if feedURL == "" {
@@ -291,7 +299,7 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 		SiteURL:       fd.doc.SiteURL,
 		Title:         subscriptionTitle(sub.Title, fd),
 		OriginalTitle: fd.doc.Title,
-		IconURL:       cmp.Or(fd.doc.IconURL, httpURL(sub.IconURL)),
+		IconURL:       cmp.Or(fd.doc.IconURL, iconHint(sub.IconURL)),
 		FolderID:      sub.FolderID,
 		ETag:          fd.etag,
 		LastModified:  fd.lastModified,
@@ -307,6 +315,13 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 		return store.Feed{}, fmt.Errorf("sched: subscribe %s: %w", redact(fd.feedURL), err)
 	}
 	s.cache.drop(feedURL, fd.feedURL)
+	if feed.IconURL == "" {
+		// Best-effort, once the subscription is stored: a slow page, or a
+		// request that ends meanwhile, cannot make it fail.
+		if avatar := s.lookupAvatar(ctx, resolveFetcher{s}, feed.URL); avatar != "" && s.storeAvatar(ctx, feed, avatar) == nil {
+			feed.IconURL = avatar
+		}
+	}
 	s.log.Info("stored new subscription", "feed", feed.ID, "url", redact(feed.URL), "entries", len(entries),
 		"next_fetch", feed.NextFetchAt)
 	s.signal()

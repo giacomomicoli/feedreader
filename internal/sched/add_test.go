@@ -181,29 +181,18 @@ func TestPreview_YouTubeFeedIsKindYouTube(t *testing.T) {
 // the channel page fetched for the channel ID, with no request of its own,
 // and polls of the feed (which has no icon) keep it.
 func TestSubscribe_ChannelAvatarFoundByTheResolverIsStoredAndKept(t *testing.T) {
-	const (
-		channelID = "UCtestchannel00000000000"
-		handle    = "https://www.youtube.com/@testchannel"
-		ytURL     = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channelID
-	)
-	body, err := os.ReadFile("testdata/youtube.xml")
-	mustNoErr(t, err)
-	page := []byte(`<!DOCTYPE html><html><head><title>Test Channel</title></head><body>
-<link rel="canonical" href="https://www.youtube.com/channel/` + channelID + `">
-<meta property="og:image" content="https://yt3.googleusercontent.com/synthetic-avatar=s900-c-k-c0x00ffffff-no-rj">
-</body></html>`)
+	const handle = "https://www.youtube.com/@testchannel"
+	page := chanPage()
+	page.FinalURL = handle
 	st := openStore(t)
 	clock := newClock(t0)
-	fetcher := routeFetcher(map[string]*fetch.Result{
-		handle: {StatusCode: 200, Body: page, ContentType: "text/html; charset=utf-8", FinalURL: handle},
-		ytURL:  ok(ytURL, body),
-	})
+	fetcher := routeFetcher(map[string]*fetch.Result{handle: page, chanFeedURL: chanFeed(t, chanFeedURL)})
 	s := newClockedScheduler(t, st, fetcher, clock)
 
 	res, err := resolve.New(s.ResolveFetcher()).Resolve(t.Context(), handle)
 	mustNoErr(t, err)
 	c := res.Candidates[0]
-	if c.URL != ytURL || !strings.HasPrefix(c.IconURL, "https://yt3.googleusercontent.com/synthetic-avatar=") {
+	if c.URL != chanFeedURL || c.IconURL != wantAvatar(t) {
 		t.Fatalf("candidate = %+v", c)
 	}
 	_, err = s.Preview(t.Context(), c.URL)
@@ -225,33 +214,34 @@ func TestSubscribe_ChannelAvatarFoundByTheResolverIsStoredAndKept(t *testing.T) 
 }
 
 func TestSubscribe_IconURLOnlyForAFeedWithoutIconAndOnlyHTTP(t *testing.T) {
-	ytBody, err := os.ReadFile("testdata/youtube.xml")
-	mustNoErr(t, err)
-	const (
-		ytURL  = "https://www.youtube.com/feeds/videos.xml?channel_id=UCtestchannel0000000000"
-		avatar = "https://yt3.googleusercontent.com/synthetic-avatar"
-	)
+	const avatar = "https://yt3.googleusercontent.com/synthetic-avatar"
 	rssBody := atomDoc("Site feed", itemsNewestFirst("e", 1, t0)...) // has <icon>
 	for _, tc := range []struct {
 		name, url string
-		body      []byte
+		res       *fetch.Result
 		icon      string
 		want      string
 	}{
-		{"feed's own icon wins", feedURL, rssBody, avatar, "https://site.example/icon.png"},
-		{"used when the feed has none", ytURL, ytBody, avatar, avatar},
-		{"trimmed", ytURL, ytBody, "  " + avatar + "\n", avatar},
-		{"none", ytURL, ytBody, "", ""},
-		{"javascript", ytURL, ytBody, "javascript:alert(1)", ""},
-		{"data", ytURL, ytBody, "data:image/png;base64,AAAA", ""},
-		{"ftp", ytURL, ytBody, "ftp://files.example/a.png", ""},
-		{"relative", ytURL, ytBody, "/a.png", ""},
-		{"no host", ytURL, ytBody, "https:///a.png", ""},
-		{"unparsable", ytURL, ytBody, "https://[::1/a.png", ""},
+		{"feed's own icon wins", feedURL, ok(feedURL, rssBody), avatar, "https://site.example/icon.png"},
+		{"used when the feed has none", chanFeedURL, nil, avatar, avatar},
+		{"trimmed", chanFeedURL, nil, "  " + avatar + "\n", avatar},
+		// Not usable: the channel page is looked up instead, and has none.
+		{"none", chanFeedURL, nil, "", ""},
+		{"javascript", chanFeedURL, nil, "javascript:alert(1)", ""},
+		{"data", chanFeedURL, nil, "data:image/png;base64,AAAA", ""},
+		{"ftp", chanFeedURL, nil, "ftp://files.example/a.png", ""},
+		{"relative", chanFeedURL, nil, "/a.png", ""},
+		{"no host", chanFeedURL, nil, "https:///a.png", ""},
+		{"unparsable", chanFeedURL, nil, "https://[::1/a.png", ""},
+		{"too long", chanFeedURL, nil, avatar + "/" + strings.Repeat("a", resolve.MaxIconURLBytes), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			res := tc.res
+			if res == nil {
+				res = chanFeed(t, tc.url)
+			}
 			st := openStore(t)
-			s := newClockedScheduler(t, st, routeFetcher(map[string]*fetch.Result{tc.url: ok(tc.url, tc.body)}), newClock(t0))
+			s := newClockedScheduler(t, st, routeFetcher(map[string]*fetch.Result{tc.url: res}), newClock(t0))
 			feed, err := s.Subscribe(t.Context(), Subscription{FeedURL: tc.url, IconURL: tc.icon})
 			mustNoErr(t, err)
 			if feed.IconURL != tc.want {

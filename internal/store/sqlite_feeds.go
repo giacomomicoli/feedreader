@@ -278,3 +278,16 @@ func (s *SQLite) UpdateFeedURL(ctx context.Context, id int64, url string) error 
 	}
 	return nil
 }
+
+// SetFeedIcon stores an icon found for the feed outside its document.
+// Returns ErrNotFound if the feed does not exist and ErrInvalid if iconURL
+// is empty.
+func (s *SQLite) SetFeedIcon(ctx context.Context, id int64, iconURL string) error {
+	if strings.TrimSpace(iconURL) == "" {
+		return fmt.Errorf("store: set icon of feed %d: empty URL: %w", id, ErrInvalid)
+	}
+	if err := execOne(ctx, s.db, "feed", id, `UPDATE feeds SET icon_url = ? WHERE id = ?`, iconURL, id); err != nil {
+		return fmt.Errorf("store: set icon of feed %d: %w", id, err)
+	}
+	return nil
+}

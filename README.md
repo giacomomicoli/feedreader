@@ -54,7 +54,7 @@ Building for another machine: set the target platform, e.g. `GOOS=linux GOARCH=a
 | `youtube.com/playlist?list=…` | the playlist's video feed |
 | Any web page | the feeds the page advertises (you choose if there are several), or common feed locations such as `/feed` and `/rss.xml` |
 
-A channel added by its `@handle`, `/c/…` or `/user/…` URL also shows the channel's avatar, read from the channel page that is fetched anyway to find the channel ID. This is best-effort: channels added any other way, or whose page has no avatar, show their initials instead.
+YouTube channels show their avatar, read from the channel's page on YouTube. For an `@handle`, `/c/…` or `/user/…` URL that page is already fetched to find the channel ID, so the avatar costs no extra request; otherwise, or when that page shows none, subscribing takes one extra request. A channel still without an avatar (subscribed with an older version, or its page could not be read) gets one at its next successful check, with one try per channel each time feedreader starts. Playlists and legacy `feeds/videos.xml?user=…` feeds show their initials, as does any source without an icon.
 
 You can edit the title and pick (or create) a folder before confirming. The **5 newest** entries start as unread; older ones are kept as already read, and you can page back through them with **Load more**. A feed only contains its most recent items (YouTube: the last 15 videos), so feedreader cannot show anything older than what the feed offered when you subscribed.
 

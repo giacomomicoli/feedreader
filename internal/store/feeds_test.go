@@ -443,6 +443,32 @@ func TestUpdateFeedURL_PermanentRedirect(t *testing.T) {
 	}
 }
 
+func TestSetFeedIcon_KeptByPollsOfADocumentWithoutIcon(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+	const avatar = "https://images.example/avatar.jpg"
+	nf := newFeed("https://a.example/feed", KindYouTube)
+	nf.IconURL = ""
+	a := mustCreateFeed(t, s, nf, nil, config.InitialUnread)
+	b := mustCreateFeed(t, s, newFeed("https://b.example/feed", KindRSS), nil, config.InitialUnread)
+
+	mustNoErr(t, s.SetFeedIcon(ctx, a.ID, avatar))
+	_, err := s.RecordFetchSuccess(ctx, FetchSuccess{FeedID: a.ID, FetchedAt: a.LastFetchedAt.Add(time.Hour)})
+	mustNoErr(t, err)
+	if got, err := s.GetFeed(ctx, a.ID); err != nil || got.IconURL != avatar {
+		t.Errorf("icon = %q, %v; want %q", got.IconURL, err, avatar)
+	}
+	if got, err := s.GetFeed(ctx, b.ID); err != nil || got.IconURL != b.IconURL {
+		t.Errorf("other feed's icon = %q, %v; want %q", got.IconURL, err, b.IconURL)
+	}
+	if err := s.SetFeedIcon(ctx, b.ID+1, avatar); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing feed err = %v, want ErrNotFound", err)
+	}
+	if err := s.SetFeedIcon(ctx, a.ID, " "); !errors.Is(err, ErrInvalid) {
+		t.Errorf("empty URL err = %v, want ErrInvalid", err)
+	}
+}
+
 func mustNoErr(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
