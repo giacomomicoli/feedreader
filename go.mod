@@ -2,12 +2,12 @@ module github.com/giacomomicoli/feedreader
 
 go 1.26.0
 
-toolchain go1.26.8
+toolchain go1.26.9
 
 require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/mmcdole/gofeed v1.5.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	modernc.org/sqlite v1.60.1
 )
 
