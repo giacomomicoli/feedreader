@@ -251,6 +251,34 @@ func TestSubscribe_IconURLOnlyForAFeedWithoutIconAndOnlyHTTP(t *testing.T) {
 	}
 }
 
+func TestSubscribe_FirstPollIsOneIntervalOfTheFeedsKindLater(t *testing.T) {
+	body, err := os.ReadFile("testdata/youtube.xml")
+	mustNoErr(t, err)
+	const ytURL = "https://www.youtube.com/feeds/videos.xml?channel_id=UCtestchannel0000000000"
+	routes := map[string]*fetch.Result{
+		ytURL:   ok(ytURL, body),
+		feedURL: ok(feedURL, atomDoc("Site feed", itemsNewestFirst("e", 1, t0)...)),
+	}
+	for _, configured := range []bool{false, true} {
+		cfg := config.Default()
+		if configured {
+			cfg.PollInterval = 2 * config.DefaultPollInterval
+			cfg.PollIntervalYouTube = 2 * config.DefaultYouTubePollInterval
+		}
+		st := openStore(t)
+		clock := newClock(t0)
+		s := New(st, routeFetcher(routes), cfg, testLogger(t))
+		s.now = clock.Now
+		for url, want := range map[string]time.Duration{ytURL: cfg.PollIntervalYouTube, feedURL: cfg.PollInterval} {
+			feed, err := s.Subscribe(t.Context(), Subscription{FeedURL: url})
+			mustNoErr(t, err)
+			if got := feed.NextFetchAt.Sub(clock.Now()); got != want {
+				t.Errorf("%s feed (configured %v): first poll in %s, want %s", feed.Kind, configured, got, want)
+			}
+		}
+	}
+}
+
 func TestPreview_ReturnsFetchAndParseErrorsAndCachesNothing(t *testing.T) {
 	st := openStore(t)
 	page := ok(feedURL, []byte("<!doctype html><html><head><title>x</title></head></html>"))

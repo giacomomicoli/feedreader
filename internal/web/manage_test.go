@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -33,13 +34,36 @@ func TestFeedSettingsPageShowsFetchStatusAndForms(t *testing.T) {
 		`<h1 class="page-title">Renamed</h1>`, "The feed calls itself “Blog”.",
 		`hx-post="/feeds/`+idStr(f.ID)+`/rename"`, `hx-post="/feeds/`+idStr(f.ID)+`/move"`, `hx-post="/feeds/`+idStr(f.ID)+`/interval"`,
 		`<option value="`+idStr(fo.ID)+`" selected>News</option>`,
-		`placeholder="6h (default)"`, "at least 5m",
+		`placeholder="`+formatInterval(config.DefaultPollInterval)+` (default)"`, "at least "+formatInterval(config.MinPollInterval),
 		"Last fetch", "Next fetch", "in 1 hour", "Failures in a row", "HTTP 500 from https://example.com/blog/feed.xml",
 		`href="https://example.com/blog/feed.xml" target="_blank" rel="noopener noreferrer"`,
 		"Refresh now", `hx-get="/feeds/`+idStr(f.ID)+`/unsubscribe"`,
 	)
 	wantStatus(t, e.get("/feeds/9999"), http.StatusNotFound)
 	wantStatus(t, e.get("/feeds/nope"), http.StatusBadRequest)
+}
+
+// TestFeedSettingsShowTheDefaultIntervalOfTheFeedsKind: a YouTube feed
+// without an override is polled at the YouTube default, so that is the
+// default its settings page offers.
+func TestFeedSettingsShowTheDefaultIntervalOfTheFeedsKind(t *testing.T) {
+	e := newTestEnv(t)
+	blog := e.addFeed(store.KindRSS, "blog", "Blog", 0, makeEntries("b", 1))
+	videos := e.addFeed(store.KindYouTube, "videos", "Videos", 0, makeEntries("v", 1))
+	check := func(f store.Feed, want time.Duration) {
+		t.Helper()
+		w := e.get("/feeds/" + idStr(f.ID))
+		wantStatus(t, w, http.StatusOK)
+		wantContains(t, w.Body.String(),
+			`placeholder="`+formatInterval(want)+` (default)"`, "use the default of "+formatInterval(want)+".")
+	}
+	check(blog, config.DefaultPollInterval)
+	check(videos, config.DefaultYouTubePollInterval)
+
+	e.srv.cfg.PollInterval = 2 * config.DefaultPollInterval
+	e.srv.cfg.PollIntervalYouTube = 2 * config.DefaultYouTubePollInterval
+	check(blog, e.srv.cfg.PollInterval)
+	check(videos, e.srv.cfg.PollIntervalYouTube)
 }
 
 func TestFeedRenameMoveAndInterval(t *testing.T) {

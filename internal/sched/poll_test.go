@@ -58,6 +58,29 @@ func TestPoll_304SendsStoredValidatorsResetsErrorCountAndReschedules(t *testing.
 	}
 }
 
+func TestPoll_YouTubeFeedIsPolledAtTheYouTubeInterval(t *testing.T) {
+	const ytURL = "https://www.youtube.com/feeds/videos.xml?channel_id=UCtestchannel0000000000"
+	tests := []struct {
+		name string
+		res  *fetch.Result
+	}{
+		{"304", notModified(ytURL)},
+		{"200", ok(ytURL, atomDoc("Channel", itemsNewestFirst("v", 1, t0)...))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openStore(t)
+			f := addFeedOfKind(t, st, store.KindYouTube, ytURL, t0)
+			clock := newClock(t0.Add(time.Hour))
+			s := newClockedScheduler(t, st, staticFetcher(tt.res, nil), clock)
+			pollOnce(t, s, st, f.ID)
+			if got := getFeed(t, st, f.ID); got.ErrorCount != 0 || !got.NextFetchAt.Equal(clock.Now().Add(config.DefaultYouTubePollInterval)) {
+				t.Errorf("next fetch in %s (errors %d), want %s", got.NextFetchAt.Sub(clock.Now()), got.ErrorCount, config.DefaultYouTubePollInterval)
+			}
+		})
+	}
+}
+
 func TestPoll_200InsertsNewEntriesUnreadAndKeepsReadStateOfExistingOnes(t *testing.T) {
 	st := openStore(t)
 	ctx := t.Context()
@@ -193,7 +216,8 @@ func TestPoll_ConsecutiveFailuresAreCountedKeepEntriesAndBackOff(t *testing.T) {
 	clock := newClock(t0)
 	fetcher := staticFetcher(nil, &fetch.StatusError{URL: feedURL, StatusCode: 503})
 	s := newClockedScheduler(t, st, fetcher, clock)
-	for n := 1; n <= config.WarnAfterFailures; n++ {
+	// One failure past the warning, so that the backoff reaches its cap.
+	for n := 1; n <= config.WarnAfterFailures+1; n++ {
 		clock.Set(getFeed(t, st, f.ID).NextFetchAt) // poll when due
 		pollOnce(t, s, st, f.ID)
 		got := getFeed(t, st, f.ID)
@@ -203,9 +227,12 @@ func TestPoll_ConsecutiveFailuresAreCountedKeepEntriesAndBackOff(t *testing.T) {
 		if got.LastError != "HTTP 503 from "+feedURL {
 			t.Errorf("last_error = %q", got.LastError)
 		}
-		delay := config.DefaultPollInterval // × 2^n, capped
-		for range n {
-			delay = min(2*delay, config.MaxBackoff)
+		delay := firstBackoff // a single failure is retried soon
+		if n > 1 {
+			delay = config.DefaultPollInterval // then × 2^(n-1), capped
+			for range n - 1 {
+				delay = min(2*delay, config.MaxBackoff)
+			}
 		}
 		if !got.LastFetchedAt.Equal(clock.Now()) || !got.NextFetchAt.Equal(clock.Now().Add(delay)) {
 			t.Errorf("after failure %d: next fetch %s, want +%s", n, got.NextFetchAt.Sub(clock.Now()), delay)
@@ -235,6 +262,34 @@ func TestPoll_ConsecutiveFailuresAreCountedKeepEntriesAndBackOff(t *testing.T) {
 	pollOnce(t, s, st, f.ID)
 	if got := getFeed(t, st, f.ID); got.ErrorCount != 0 || got.LastError != "" {
 		t.Errorf("after success: error_count %d, last_error %q", got.ErrorCount, got.LastError)
+	}
+}
+
+// TestPoll_OneOffFailureIsRetriedSoonWithoutBackoff: a single bogus error
+// (YouTube answers the odd 404 for a working channel) costs one quick retry,
+// not a doubled interval; the feed then returns to its normal schedule.
+func TestPoll_OneOffFailureIsRetriedSoonWithoutBackoff(t *testing.T) {
+	const ytURL = "https://www.youtube.com/feeds/videos.xml?channel_id=UCtestchannel0000000000"
+	st := openStore(t)
+	f := addFeedOfKind(t, st, store.KindYouTube, ytURL, t0)
+	clock := newClock(t0)
+	fetcher := staticFetcher(nil, &fetch.StatusError{URL: ytURL, StatusCode: 404})
+	s := newClockedScheduler(t, st, fetcher, clock)
+
+	pollOnce(t, s, st, f.ID)
+	got := getFeed(t, st, f.ID)
+	if want := clock.Now().Add(config.FirstRetryDelay); got.ErrorCount != 1 || !got.NextFetchAt.Equal(want) {
+		t.Fatalf("after one 404: error_count %d, next fetch in %s; want 1 and %s",
+			got.ErrorCount, got.NextFetchAt.Sub(clock.Now()), config.FirstRetryDelay)
+	}
+
+	fetcher.setRespond(func(context.Context, fetch.Request) (*fetch.Result, error) { return notModified(ytURL), nil })
+	clock.Set(got.NextFetchAt)
+	pollOnce(t, s, st, f.ID)
+	got = getFeed(t, st, f.ID)
+	if want := clock.Now().Add(config.DefaultYouTubePollInterval); got.ErrorCount != 0 || !got.NextFetchAt.Equal(want) {
+		t.Errorf("after the retry succeeded: error_count %d, next fetch in %s; want 0 and %s",
+			got.ErrorCount, got.NextFetchAt.Sub(clock.Now()), config.DefaultYouTubePollInterval)
 	}
 }
 
@@ -416,6 +471,11 @@ func TestPoll_PerFeedIntervalOverride(t *testing.T) {
 	clock.Advance(time.Hour)
 	s.fetcher = staticFetcher(nil, &fetch.StatusError{URL: feedURL, StatusCode: 500})
 	pollOnce(t, s, st, f.ID)
+	if got, want := getFeed(t, st, f.ID).NextFetchAt.Sub(clock.Now()), min(time.Hour, config.FirstRetryDelay); got != want {
+		t.Errorf("first failure: next fetch in %s, want %s", got, want)
+	}
+	clock.Set(getFeed(t, st, f.ID).NextFetchAt)
+	pollOnce(t, s, st, f.ID)
 	if got := getFeed(t, st, f.ID).NextFetchAt.Sub(clock.Now()); got != 2*time.Hour {
 		t.Errorf("backoff from the per-feed interval: next fetch in %s, want 2h", got)
 	}
@@ -506,8 +566,11 @@ func TestPoll_UnstorableOutcomeHoldsTheFeedUntilItsNextFetch(t *testing.T) {
 	}{
 		{"304", notModified(feedURL), nil, config.DefaultPollInterval},
 		// The entries cannot be saved: recorded (and held) as a failure.
-		{"200", ok(feedURL, atomDoc("a", itemsNewestFirst("e", 1, t0)...)), nil, firstBackoff},
-		{"failure", nil, &fetch.StatusError{URL: feedURL, StatusCode: 500}, firstBackoff},
+		// error_count cannot be raised either, so the feed is held as long
+		// as a second failure in a row would delay it, not just for a first
+		// failure's quick retry.
+		{"200", ok(feedURL, atomDoc("a", itemsNewestFirst("e", 1, t0)...)), nil, secondBackoff},
+		{"failure", nil, &fetch.StatusError{URL: feedURL, StatusCode: 500}, secondBackoff},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -519,6 +582,55 @@ func TestPoll_UnstorableOutcomeHoldsTheFeedUntilItsNextFetch(t *testing.T) {
 				t.Errorf("hold until %s, want +%s", hold, tt.want)
 			}
 		})
+	}
+}
+
+// TestPoll_UnstorableOutcomeIsNeverRefetchedWithinAnInterval: while the
+// database cannot be written, error_count stays where it was and the feed
+// stays due, so every poll looks like the first failure again. Polling it
+// each time its hold expires must still never fetch it sooner than one
+// interval after the previous fetch, for either kind's default interval and
+// whatever the server answers: a quick first retry repeated for as long as
+// the disk stays full would hammer the feed's server.
+func TestPoll_UnstorableOutcomeIsNeverRefetchedWithinAnInterval(t *testing.T) {
+	const ytURL = "https://www.youtube.com/feeds/videos.xml?channel_id=UCtestchannel0000000000"
+	kinds := []struct {
+		kind     store.Kind
+		url      string
+		interval time.Duration
+	}{
+		{store.KindRSS, feedURL, config.DefaultPollInterval},
+		{store.KindYouTube, ytURL, config.DefaultYouTubePollInterval},
+	}
+	for _, k := range kinds {
+		answers := []struct {
+			name string
+			res  *fetch.Result
+			err  error
+		}{
+			{"304", notModified(k.url), nil},
+			{"200 with new entries", ok(k.url, atomDoc("a", itemsNewestFirst("e", 1, t0)...)), nil},
+			{"500", nil, &fetch.StatusError{URL: k.url, StatusCode: 500}},
+		}
+		for _, a := range answers {
+			t.Run(string(k.kind)+"/"+a.name, func(t *testing.T) {
+				st := openStore(t)
+				f := addFeedOfKind(t, st, k.kind, k.url, t0)
+				clock := newClock(t0)
+				fetcher := staticFetcher(a.res, a.err)
+				s := newClockedScheduler(t, failingWrites{st}, fetcher, clock)
+				// Poll for as long as the longest backoff, during which a
+				// working feed is fetched at least once.
+				for end := t0.Add(config.MaxBackoff); clock.Now().Before(end); {
+					hold := s.poll(t.Context(), getFeed(t, st, f.ID))
+					if gap := hold.Sub(clock.Now()); gap < k.interval {
+						t.Fatalf("fetch %d: held for %s, so the feed would be fetched again within its %s interval",
+							fetcher.CallCount(), gap, k.interval)
+					}
+					clock.Set(hold)
+				}
+			})
+		}
 	}
 }
 

@@ -42,9 +42,20 @@ const (
 const (
 	// DefaultPollInterval is the per-feed fetch interval unless overridden.
 	DefaultPollInterval = 6 * time.Hour
-	// MaxBackoff caps failure backoff (interval × 2^error_count). It also caps
-	// server-supplied hints (RSS <ttl>, Cache-Control max-age, Retry-After) so
-	// a misbehaving feed cannot stop itself from ever being polled again.
+	// DefaultYouTubePollInterval is the fetch interval of YouTube feeds
+	// unless overridden. YouTube serves its feeds from a cache kept for 15
+	// minutes (Cache-Control: max-age=900) and they only list the latest 15
+	// videos, so polling them more often than blogs stays cheap.
+	DefaultYouTubePollInterval = 1 * time.Hour
+	// FirstRetryDelay is how soon a feed is fetched again after a single
+	// failure, or one interval when that is shorter. Servers answer the odd
+	// one-off error (YouTube sometimes returns 404 for a working channel),
+	// so backoff only starts from the second failure in a row.
+	FirstRetryDelay = 15 * time.Minute
+	// MaxBackoff caps failure backoff (interval × 2^(error_count-1) from the
+	// second failure in a row). It also caps server-supplied hints (RSS
+	// <ttl>, Cache-Control max-age, Retry-After) so a misbehaving feed cannot
+	// stop itself from ever being polled again.
 	MaxBackoff = 24 * time.Hour
 	// WarnAfterFailures is the number of consecutive failures after which the
 	// sidebar shows a warning icon on the feed.
@@ -79,13 +90,14 @@ const (
 
 // Config is the runtime configuration.
 type Config struct {
-	Listen       string        // FR_LISTEN
-	DataDir      string        // FR_DATA_DIR
-	PollInterval time.Duration // FR_POLL_INTERVAL
-	FetchWorkers int           // FR_FETCH_WORKERS
-	MaxBodyBytes int64         // FR_FETCH_MAX_BODY
-	UserAgent    string        // FR_USER_AGENT
-	LogLevel     slog.Level    // FR_LOG_LEVEL (debug|info|warn|error)
+	Listen              string        // FR_LISTEN
+	DataDir             string        // FR_DATA_DIR
+	PollInterval        time.Duration // FR_POLL_INTERVAL
+	PollIntervalYouTube time.Duration // FR_POLL_INTERVAL_YOUTUBE (YouTube feeds)
+	FetchWorkers        int           // FR_FETCH_WORKERS
+	MaxBodyBytes        int64         // FR_FETCH_MAX_BODY
+	UserAgent           string        // FR_USER_AGENT
+	LogLevel            slog.Level    // FR_LOG_LEVEL (debug|info|warn|error)
 	// AllowedHosts are extra host names the UI answers to (FR_ALLOWED_HOSTS,
 	// comma-separated), e.g. the reverse proxy's site name.
 	AllowedHosts []string
@@ -99,13 +111,14 @@ func DefaultUserAgent() string {
 // Default returns the configuration used when nothing is set.
 func Default() Config {
 	return Config{
-		Listen:       "127.0.0.1:8080",
-		DataDir:      "./data",
-		PollInterval: DefaultPollInterval,
-		FetchWorkers: DefaultFetchWorkers,
-		MaxBodyBytes: DefaultMaxBodyBytes,
-		UserAgent:    DefaultUserAgent(),
-		LogLevel:     slog.LevelInfo,
+		Listen:              "127.0.0.1:8080",
+		DataDir:             "./data",
+		PollInterval:        DefaultPollInterval,
+		PollIntervalYouTube: DefaultYouTubePollInterval,
+		FetchWorkers:        DefaultFetchWorkers,
+		MaxBodyBytes:        DefaultMaxBodyBytes,
+		UserAgent:           DefaultUserAgent(),
+		LogLevel:            slog.LevelInfo,
 	}
 }
 
@@ -142,16 +155,11 @@ func fromMap(vals map[string]string) (Config, error) {
 	if v := vals["FR_DATA_DIR"]; v != "" {
 		c.DataDir = v
 	}
-	if v := vals["FR_POLL_INTERVAL"]; v != "" {
-		d, err := time.ParseDuration(v)
-		switch {
-		case err != nil:
-			errs = append(errs, fmt.Errorf("FR_POLL_INTERVAL: %w", err))
-		case d < MinPollInterval:
-			errs = append(errs, fmt.Errorf("FR_POLL_INTERVAL: must be at least %s", MinPollInterval))
-		default:
-			c.PollInterval = d
-		}
+	if err := parsePollInterval(vals, "FR_POLL_INTERVAL", &c.PollInterval); err != nil {
+		errs = append(errs, err)
+	}
+	if err := parsePollInterval(vals, "FR_POLL_INTERVAL_YOUTUBE", &c.PollIntervalYouTube); err != nil {
+		errs = append(errs, err)
 	}
 	if v := vals["FR_FETCH_WORKERS"]; v != "" {
 		n, err := strconv.Atoi(v)
@@ -186,6 +194,24 @@ func fromMap(vals map[string]string) (Config, error) {
 		return Config{}, err
 	}
 	return c, nil
+}
+
+// parsePollInterval sets *dst to the poll interval in vals[key], a Go duration of
+// at least MinPollInterval. An empty value leaves *dst alone.
+func parsePollInterval(vals map[string]string, key string, dst *time.Duration) error {
+	v := vals[key]
+	if v == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(v)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%s: %w", key, err)
+	case d < MinPollInterval:
+		return fmt.Errorf("%s: must be at least %s", key, MinPollInterval)
+	}
+	*dst = d
+	return nil
 }
 
 // readEnvFile parses KEY=VALUE lines; blank lines and # comments are skipped,

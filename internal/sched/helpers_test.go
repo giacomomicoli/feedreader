@@ -20,9 +20,13 @@ import (
 // t0 is a fixed reference time with whole seconds (the store's precision).
 var t0 = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
-// firstBackoff is the delay after a first failure at the default interval
-// (interval × 2^error_count, capped).
-var firstBackoff = min(2*config.DefaultPollInterval, config.MaxBackoff)
+// firstBackoff is the delay after a first failure at the default interval:
+// a quick retry, at most one interval away.
+var firstBackoff = min(config.DefaultPollInterval, config.FirstRetryDelay)
+
+// secondBackoff is the delay after a second failure in a row at the default
+// interval (interval × 2, capped).
+var secondBackoff = min(2*config.DefaultPollInterval, config.MaxBackoff)
 
 // longHint is a server freshness hint (RSS <ttl>, Cache-Control max-age)
 // longer than the default interval and below the cap, in whole minutes like
@@ -281,13 +285,19 @@ func newClockedScheduler(t *testing.T, st store.Store, f Fetcher, c *testClock) 
 // with entries derived from items and the given next fetch time.
 func addFeed(t *testing.T, st store.Store, url string, next time.Time, items ...item) store.Feed {
 	t.Helper()
+	return addFeedOfKind(t, st, store.KindRSS, url, next, items...)
+}
+
+// addFeedOfKind is addFeed for a feed of the given kind.
+func addFeedOfKind(t *testing.T, st store.Store, kind store.Kind, url string, next time.Time, items ...item) store.Feed {
+	t.Helper()
 	entries := make([]store.NewEntry, len(items))
 	for i, it := range items {
 		entries[i] = store.NewEntry{GUID: it.id, URL: "https://site.example/" + it.id, Title: it.title,
 			SummaryHTML: "Summary of " + it.id, PublishedAt: it.published, UpdatedAt: it.updated}
 	}
 	f, err := st.CreateFeed(t.Context(), store.NewFeed{
-		Kind:         store.KindRSS,
+		Kind:         kind,
 		URL:          url,
 		Title:        "Feed " + url,
 		ETag:         `"v1"`,

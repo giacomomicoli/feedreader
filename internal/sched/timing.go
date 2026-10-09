@@ -11,11 +11,31 @@ import (
 // maxIntervalSec keeps a per-feed interval from overflowing time.Duration.
 const maxIntervalSec = math.MaxInt64 / int64(time.Second)
 
+// DefaultInterval is the poll interval of a feed of the given kind that has
+// no interval of its own: cfg.PollIntervalYouTube for YouTube feeds,
+// cfg.PollInterval for all others. A non-positive setting falls back to
+// config.DefaultYouTubePollInterval or config.DefaultPollInterval.
+//
+// It is the one definition of a kind's default, used by the scheduler and
+// shown on the feed settings page.
+func DefaultInterval(cfg config.Config, kind store.Kind) time.Duration {
+	if kind == store.KindYouTube {
+		if cfg.PollIntervalYouTube > 0 {
+			return cfg.PollIntervalYouTube
+		}
+		return config.DefaultYouTubePollInterval
+	}
+	if cfg.PollInterval > 0 {
+		return cfg.PollInterval
+	}
+	return config.DefaultPollInterval
+}
+
 // baseInterval is the feed's poll interval before server hints: its own
-// override when set, else the global poll interval, never below
-// config.MinPollInterval.
+// override when set, else the default for its kind (DefaultInterval), never
+// below config.MinPollInterval.
 func (s *Scheduler) baseInterval(f store.Feed) time.Duration {
-	d := s.cfg.PollInterval
+	d := DefaultInterval(s.cfg, f.Kind)
 	if f.IntervalSec > 0 {
 		d = time.Duration(min(int64(f.IntervalSec), maxIntervalSec)) * time.Second
 	}
@@ -50,15 +70,23 @@ func storedTTL(f store.Feed) time.Duration {
 }
 
 // failureDelay is how long to wait after the errorCount-th consecutive
-// failure: interval × 2^errorCount capped at config.MaxBackoff, but never
-// less than interval itself, and at least Retry-After (also capped) when the
-// server sent one.
+// failure. A first failure is retried after config.FirstRetryDelay, or one
+// interval when that is shorter, since it is often a one-off. From the
+// second failure in a row it backs off: interval × 2^(errorCount-1) capped
+// at config.MaxBackoff, but never less than interval itself. In every case
+// it is at least Retry-After (also capped) when the server sent one. An
+// errorCount of zero or less is one interval.
 func failureDelay(interval time.Duration, errorCount int, retryAfter time.Duration) time.Duration {
-	backoff := interval
-	for i := 0; i < errorCount && backoff > 0 && backoff < config.MaxBackoff; i++ {
-		backoff *= 2
+	var d time.Duration
+	if errorCount == 1 {
+		d = min(interval, config.FirstRetryDelay)
+	} else {
+		backoff := interval
+		for i := 1; i < errorCount && backoff > 0 && backoff < config.MaxBackoff; i++ {
+			backoff *= 2
+		}
+		d = max(interval, min(backoff, config.MaxBackoff))
 	}
-	d := max(interval, min(backoff, config.MaxBackoff))
 	if retryAfter > 0 {
 		d = max(d, min(retryAfter, config.MaxBackoff))
 	}

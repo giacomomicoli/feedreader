@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -68,6 +70,27 @@ func TestRun_ZeroFeedsMakesNoHTTPRequestAndDoesNotBusyLoop(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if n := fetcher.CallCount(); n != 1 {
 		t.Errorf("fetches after the first subscription = %d, want 1", n)
+	}
+}
+
+func TestRun_LogsBothDefaultIntervalsAtStartup(t *testing.T) {
+	cfg := config.Default()
+	cfg.PollIntervalYouTube = 2 * config.DefaultYouTubePollInterval
+	buf := &syncBuffer{}
+	s := New(openStore(t), staticFetcher(nil, errors.New("no fetch expected")), cfg, slog.New(slog.NewTextHandler(buf, nil)))
+	startRun(t, s)()
+	_, line, found := strings.Cut(buf.String(), "scheduler started")
+	if !found {
+		t.Fatalf("no startup log line in:\n%s", buf.String())
+	}
+	line, _, _ = strings.Cut(line, "\n")
+	for _, want := range []string{
+		"interval=" + config.DefaultPollInterval.String(),
+		"youtube_interval=" + cfg.PollIntervalYouTube.String(),
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("startup log %q lacks %q", line, want)
+		}
 	}
 }
 
@@ -355,6 +378,33 @@ func TestStagger_ReschedulesFeedsScheduledWhileTheClockWasAhead(t *testing.T) {
 	}
 	if got := getFeed(t, st, long.ID).NextFetchAt; !got.Equal(t0.Add(3 * config.MaxBackoff)) {
 		t.Errorf("feed within its own long interval was moved to %s", got)
+	}
+}
+
+// TestStagger_KeepsAScheduleMadeWithTheOtherKindsDefault: YouTube feeds
+// were scheduled with FR_POLL_INTERVAL before they had their own default, so
+// a schedule within the longer of the two defaults is not clock skew.
+func TestStagger_KeepsAScheduleMadeWithTheOtherKindsDefault(t *testing.T) {
+	st := openStore(t)
+	cfg := config.Default()
+	cfg.PollInterval = 2 * config.MaxBackoff
+	addYouTube := func(u string, next time.Time) store.Feed {
+		f, err := st.CreateFeed(t.Context(), store.NewFeed{Kind: store.KindYouTube, URL: u, Title: u,
+			FetchedAt: t0.Add(-time.Hour), NextFetchAt: next}, nil, config.InitialUnread)
+		mustNoErr(t, err)
+		return f
+	}
+	kept := addYouTube("https://www.youtube.com/feeds/videos.xml?channel_id=UCkept", t0.Add(cfg.PollInterval-time.Hour))
+	ahead := addYouTube("https://www.youtube.com/feeds/videos.xml?channel_id=UCahead", t0.Add(365*24*time.Hour))
+	s := New(st, staticFetcher(nil, errors.New("no fetch expected")), cfg, testLogger(t))
+	s.now = newClock(t0).Now
+	mustNoErr(t, s.stagger(t.Context()))
+
+	if got := getFeed(t, st, kept.ID).NextFetchAt; !got.Equal(kept.NextFetchAt) {
+		t.Errorf("YouTube feed within the blog default was moved from %s to %s", kept.NextFetchAt, got)
+	}
+	if got := getFeed(t, st, ahead.ID).NextFetchAt; !got.Equal(t0) {
+		t.Errorf("YouTube feed scheduled a year ahead: next fetch %s, want now", got)
 	}
 }
 
