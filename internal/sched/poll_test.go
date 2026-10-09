@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -348,11 +351,15 @@ func TestPoll_ShutdownDuringFetchRecordsNothing(t *testing.T) {
 		return nil, fmt.Errorf("fetch %s: %w", feedURL, ctx.Err())
 	})
 	s := newClockedScheduler(t, st, fetcher, newClock(t0.Add(time.Hour)))
+	log := captureLog(t, s)
 	s.poll(ctx, f)
 
 	got := getFeed(t, st, f.ID)
 	if got.ErrorCount != 0 || got.LastError != "" || !got.NextFetchAt.Equal(f.NextFetchAt) {
 		t.Errorf("shutdown was recorded: %+v", got)
+	}
+	if recs := log.records(slog.LevelInfo); len(recs) != 0 {
+		t.Errorf("shutdown was logged: %q", messages(recs))
 	}
 }
 
@@ -750,6 +757,270 @@ func TestPoll_FeedReplacedWhileFetchingIsLeftUntouched(t *testing.T) {
 			}
 			if entries := feedEntries(t, st, b.ID); len(entries) != 1 {
 				t.Errorf("new subscription has %d entries, want its own 1", len(entries))
+			}
+		})
+	}
+}
+
+// --- poll log lines ---
+
+// Feed URLs with credentials, which log lines show redacted (the tests
+// below also check that the secret never appears).
+const (
+	feedSecret    = "s3cret"
+	secretFeedURL = "https://reader:" + feedSecret + "@site.example/feed.xml"
+	movedFeedURL  = "https://reader:" + feedSecret + "@moved.example/feed.xml"
+)
+
+var (
+	shownFeedURL  = redact(secretFeedURL)
+	shownMovedURL = redact(movedFeedURL)
+)
+
+// fetchTook is how long the fetches of slowFetcher take on the test clock.
+const fetchTook = 3 * time.Second
+
+// slowFetcher answers every request with res and err after advancing c by
+// fetchTook.
+func slowFetcher(c *testClock, res *fetch.Result, err error) *fakeFetcher {
+	return newFetcher(func(context.Context, fetch.Request) (*fetch.Result, error) {
+		c.Advance(fetchTook)
+		return res, err
+	})
+}
+
+// checkPolledLine checks that log holds exactly one "polled feed" line and
+// that it is want, with every attribute of that line: feed, url, status,
+// new, took and next_fetch. new must be there also when it is 0. The other
+// attributes want must have non-zero values, so that a missing one cannot
+// pass for a zero value either.
+func checkPolledLine(t *testing.T, log *logCapture, want logRecord) {
+	t.Helper()
+	if want.Feed == 0 || want.URL == "" || want.Status == 0 || want.New == nil || want.Took == 0 || want.NextFetch.IsZero() {
+		t.Fatalf("checkPolledLine needs every attribute, non-zero but for new, got %+v", want)
+	}
+	lines := log.withMsg("polled feed")
+	if len(lines) != 1 {
+		t.Fatalf("%d polled feed lines, want 1", len(lines))
+	}
+	got := lines[0]
+	switch {
+	case got.New == nil:
+		t.Errorf("polled feed line without new, want new=%d", *want.New)
+	case *got.New != *want.New:
+		t.Errorf("new = %d, want %d", *got.New, *want.New)
+	}
+	if !got.NextFetch.Equal(want.NextFetch) {
+		t.Errorf("next_fetch = %s, want %s", got.NextFetch, want.NextFetch)
+	}
+	got.New, got.NextFetch = nil, time.Time{}
+	want.New, want.NextFetch = nil, time.Time{}
+	if got != want {
+		t.Errorf("polled feed line = %+v, want %+v", got, want)
+	}
+}
+
+// TestPoll_LogsOneLinePerPoll: every poll whose outcome is stored, 200 or
+// 304, logs exactly one info line, so the log shows the scheduler at work
+// even when a feed has nothing new. The line names the URL the feed now has
+// (after a followed permanent redirect) with its password redacted, and
+// nothing the feed controls, such as titles.
+func TestPoll_LogsOneLinePerPoll(t *testing.T) {
+	const docTitle, userTitle = "Title of the feed document", "Title given by the user"
+	oldItems := itemsNewestFirst("old", 1, t0)
+	newItems := itemsNewestFirst("new", 2, t0.Add(time.Hour))
+	withNew := atomDoc(docTitle, append(newItems, oldItems...)...)
+	moved := func(res *fetch.Result) *fetch.Result {
+		res.PermanentURL = movedFeedURL
+		return res
+	}
+	polled := []string{"polled feed"}
+	movedAndPolled := []string{"feed moved permanently", "polled feed"}
+	tests := []struct {
+		name     string
+		res      *fetch.Result
+		url      string // logged
+		status   int
+		inserted int
+		lines    []string // messages logged at info level or above
+	}{
+		{"304", notModified(secretFeedURL), shownFeedURL, http.StatusNotModified, 0, polled},
+		{"200 with new entries", ok(secretFeedURL, withNew), shownFeedURL, http.StatusOK, len(newItems), polled},
+		{"200 without new entries", ok(secretFeedURL, atomDoc(docTitle, oldItems...)), shownFeedURL, http.StatusOK, 0, polled},
+		{"304 after a permanent redirect", moved(notModified(movedFeedURL)), shownMovedURL, http.StatusNotModified, 0, movedAndPolled},
+		{"200 after a permanent redirect", moved(ok(movedFeedURL, withNew)), shownMovedURL, http.StatusOK, len(newItems), movedAndPolled},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openStore(t)
+			f := addFeed(t, st, secretFeedURL, t0, oldItems...)
+			mustNoErr(t, st.RenameFeed(t.Context(), f.ID, userTitle))
+			clock := newClock(t0.Add(time.Hour))
+			s := newClockedScheduler(t, st, slowFetcher(clock, tt.res, nil), clock)
+			log := captureLog(t, s)
+			pollOnce(t, s, st, f.ID)
+
+			stored := getFeed(t, st, f.ID)
+			if stored.ErrorCount != 0 || !stored.NextFetchAt.Equal(clock.Now().Add(config.DefaultPollInterval)) {
+				t.Fatalf("poll not stored as a success: %+v", stored)
+			}
+			if got := messages(log.records(slog.LevelInfo)); !slices.Equal(got, tt.lines) {
+				t.Errorf("logged %q at info or above, want %q", got, tt.lines)
+			}
+			checkPolledLine(t, log, logRecord{Level: slog.LevelInfo, Msg: "polled feed", Feed: f.ID, URL: tt.url,
+				Status: tt.status, New: &tt.inserted, Took: fetchTook, NextFetch: stored.NextFetchAt})
+			private := []string{feedSecret, docTitle, userTitle}
+			for _, it := range append(newItems, oldItems...) {
+				private = append(private, it.title)
+			}
+			for _, p := range private {
+				if strings.Contains(log.String(), p) {
+					t.Errorf("the log contains %q", p)
+				}
+			}
+		})
+	}
+}
+
+// TestPoll_LogShowsTheNextFetchActuallyStored: a Refresh that moved the next
+// fetch earlier while the feed was being fetched is kept (see keepRequested),
+// and the poll's log line shows that time, not the schedule the poll
+// computed.
+func TestPoll_LogShowsTheNextFetchActuallyStored(t *testing.T) {
+	items := itemsNewestFirst("e", 1, t0)
+	tests := []struct {
+		name     string
+		res      *fetch.Result
+		status   int
+		inserted int
+	}{
+		{"304", notModified(feedURL), http.StatusNotModified, 0},
+		{"200", ok(feedURL, atomDoc("a", items...)), http.StatusOK, len(items)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openStore(t)
+			f := addFeed(t, st, feedURL, t0)
+			clock := newClock(t0.Add(time.Hour))
+			refreshedAt := clock.Now().Add(time.Second)
+			fetcher := newFetcher(func(ctx context.Context, _ fetch.Request) (*fetch.Result, error) {
+				mustNoErr(t, st.SetNextFetch(ctx, f.ID, refreshedAt)) // what Refresh writes
+				clock.Advance(fetchTook)
+				return tt.res, nil
+			})
+			s := newClockedScheduler(t, st, fetcher, clock)
+			log := captureLog(t, s)
+			pollOnce(t, s, st, f.ID)
+
+			if got := getFeed(t, st, f.ID).NextFetchAt; !got.Equal(refreshedAt) {
+				t.Fatalf("stored next fetch = %s, want the refresh time %s", got, refreshedAt)
+			}
+			checkPolledLine(t, log, logRecord{Level: slog.LevelInfo, Msg: "polled feed", Feed: f.ID, URL: feedURL,
+				Status: tt.status, New: &tt.inserted, Took: fetchTook, NextFetch: refreshedAt})
+		})
+	}
+}
+
+// TestPoll_FailedPollLogsOneWarning: a failed poll logs its single "feed
+// fetch failed" warning, with the fetch duration and the redacted URL, and
+// no "polled feed" line, also when the server answered 200 with a page that
+// is not a feed.
+func TestPoll_FailedPollLogsOneWarning(t *testing.T) {
+	page := ok(secretFeedURL, []byte("<!doctype html><html><head><title>For sale</title></head><body>For sale</body></html>"))
+	page.ContentType = "text/html; charset=utf-8"
+	tests := []struct {
+		name string
+		res  *fetch.Result
+		err  error
+	}{
+		{"HTTP error", nil, &fetch.StatusError{URL: shownFeedURL, StatusCode: http.StatusServiceUnavailable}},
+		{"network", nil, fmt.Errorf("fetch %s: dial tcp: connection refused", shownFeedURL)},
+		{"not a feed", page, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openStore(t)
+			f := addFeed(t, st, secretFeedURL, t0)
+			clock := newClock(t0.Add(time.Hour))
+			s := newClockedScheduler(t, st, slowFetcher(clock, tt.res, tt.err), clock)
+			log := captureLog(t, s)
+			pollOnce(t, s, st, f.ID)
+
+			stored := getFeed(t, st, f.ID)
+			if stored.ErrorCount != 1 {
+				t.Fatalf("error_count = %d, want 1", stored.ErrorCount)
+			}
+			recs := log.records(slog.LevelInfo)
+			if len(recs) != 1 {
+				t.Fatalf("logged %q at info or above, want one warning", messages(recs))
+			}
+			got := recs[0]
+			if !got.NextFetch.Equal(stored.NextFetchAt) {
+				t.Errorf("next_fetch = %s, want the stored %s", got.NextFetch, stored.NextFetchAt)
+			}
+			got.NextFetch = time.Time{}
+			want := logRecord{Level: slog.LevelWarn, Msg: "feed fetch failed", Feed: f.ID, URL: shownFeedURL, Took: fetchTook}
+			if got != want {
+				t.Errorf("warning = %+v, want %+v", got, want)
+			}
+			if strings.Contains(log.String(), feedSecret) {
+				t.Errorf("the log contains the feed's password")
+			}
+		})
+	}
+}
+
+// TestPoll_UnstoredOutcomeLogsNoPolledLine: a "polled feed" line matches
+// what the feed's status shows, so a poll whose outcome could not be stored
+// logs the store error instead. The poll of a feed unsubscribed during its
+// fetch logs nothing at info level or above, except the warning of a failed
+// fetch, which is logged before its outcome is stored.
+func TestPoll_UnstoredOutcomeLogsNoPolledLine(t *testing.T) {
+	doc := atomDoc("a", itemsNewestFirst("e", 1, t0)...)
+	unavailable := &fetch.StatusError{URL: feedURL, StatusCode: http.StatusServiceUnavailable}
+	tests := []struct {
+		name    string
+		res     *fetch.Result
+		err     error
+		removed bool // unsubscribed during the fetch; otherwise the store's writes fail
+	}{
+		{"304 not stored", notModified(feedURL), nil, false},
+		{"200 not stored", ok(feedURL, doc), nil, false},
+		{"304 of a removed feed", notModified(feedURL), nil, true},
+		{"200 of a removed feed", ok(feedURL, doc), nil, true},
+		{"failure of a removed feed", nil, unavailable, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openStore(t)
+			f := addFeed(t, st, feedURL, t0)
+			fetcher := newFetcher(func(ctx context.Context, _ fetch.Request) (*fetch.Result, error) {
+				if tt.removed {
+					mustNoErr(t, st.DeleteFeed(ctx, f.ID))
+				}
+				return tt.res, tt.err
+			})
+			var sst store.Store = failingWrites{st}
+			if tt.removed {
+				sst = st
+			}
+			s := newClockedScheduler(t, sst, fetcher, newClock(t0.Add(time.Hour)))
+			log := captureLog(t, s)
+			s.poll(t.Context(), f)
+
+			if lines := log.withMsg("polled feed"); len(lines) != 0 {
+				t.Errorf("logged %+v for an outcome that was not stored", lines)
+			}
+			if tt.removed {
+				var want []string
+				if tt.err != nil {
+					want = []string{"feed fetch failed"}
+				}
+				if got := messages(log.records(slog.LevelInfo)); !slices.Equal(got, want) {
+					t.Errorf("logged %q at info or above for a removed feed, want %q", got, want)
+				}
+			} else if len(log.records(slog.LevelError)) == 0 {
+				t.Error("the store error was not logged")
 			}
 		})
 	}

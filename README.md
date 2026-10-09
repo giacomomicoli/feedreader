@@ -78,7 +78,7 @@ Settings come from environment variables, or from a file of `KEY=VALUE` lines pa
 | `FR_FETCH_WORKERS` | `4` | Maximum concurrent background fetches (1–64) |
 | `FR_FETCH_MAX_BODY` | `10485760` | Maximum feed size in bytes (after decompression) |
 | `FR_USER_AGENT` | `feedreader/<version> (+https://github.com/giacomomicoli/feedreader)` | User-Agent sent to sites |
-| `FR_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
+| `FR_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. At `info` every check of a source is logged: one line with its HTTP status, new entries, duration and next check, or a warning when it failed |
 
 `feedreader -version` prints the version.
 

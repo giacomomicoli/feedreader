@@ -42,10 +42,17 @@ var errNoResult = errors.New("fetch returned no response")
 //     failure, exponential backoff from the second in a row. Entries are
 //     never touched.
 //
-// A fetch cut short by ctx (shutdown) records nothing, and so does the poll
-// of a feed that was unsubscribed while it was being fetched, even when a
-// new subscription has taken its id (see writeFeed). poll returns a non-zero
-// time when the outcome could not be stored; see outcome.holdUntil.
+// Every poll whose outcome is stored logs one info line (see logPolled), so
+// the log shows each check of a feed even when nothing changed. A failed
+// poll logs a warning instead (see recordFailure), before its outcome is
+// stored, so the warning is logged even when that outcome is not.
+//
+// A fetch cut short by ctx (shutdown) records and logs nothing. Nothing is
+// recorded either for a feed that was unsubscribed while it was being
+// fetched, even when a new subscription has taken its id (see writeFeed),
+// and its poll logs no "polled feed" line; a failed fetch of it still logs
+// its warning. poll returns a non-zero time when the outcome could not be
+// stored; see outcome.holdUntil.
 func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time) {
 	base := s.baseInterval(f)
 	started := s.now()
@@ -59,14 +66,13 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 		return time.Time{} // our own shutdown, not the feed's fault
 	}
 	fetchedAt := s.now()
+	took := fetchedAt.Sub(started)
 	if err == nil && res == nil {
 		err = errNoResult
 	}
 	if err != nil {
-		return s.recordFailure(ctx, f, fetchedAt, base, err)
+		return s.recordFailure(ctx, f, fetchedAt, took, base, err)
 	}
-	s.log.Debug("fetched feed", "feed", f.ID, "url", redact(f.URL), "status", res.StatusCode,
-		"bytes", len(res.Body), "took", fetchedAt.Sub(started))
 
 	redirected := res.PermanentURL != "" && res.PermanentURL != f.URL
 	if res.NotModified {
@@ -75,10 +81,13 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 			f.URL = s.followPermanentRedirect(ctx, f, res.PermanentURL)
 		}
 		next := fetchedAt.Add(withHints(base, storedTTL(f), res.MaxAge))
+		var scheduled time.Time // next, or an earlier fetch requested meanwhile
 		err := s.writeFeed(ctx, f, func(cur store.Feed) error {
-			return s.st.RecordNotModified(ctx, f.ID, fetchedAt, keepRequested(f, cur, next))
+			scheduled = keepRequested(f, cur, next)
+			return s.st.RecordNotModified(ctx, f.ID, fetchedAt, scheduled)
 		})
 		if err == nil {
+			s.logPolled(f, res.StatusCode, 0, took, scheduled)
 			s.backfillAvatar(ctx, f)
 		}
 		return s.checkStored(ctx, f, next, err)
@@ -89,18 +98,22 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 		if redirected {
 			err = fmt.Errorf("moved permanently to %s: %w", redact(res.PermanentURL), err)
 		}
-		return s.recordFailure(ctx, f, fetchedAt, base, err)
+		return s.recordFailure(ctx, f, fetchedAt, took, base, err)
 	}
 	if redirected {
 		f.URL = s.followPermanentRedirect(ctx, f, res.PermanentURL)
 	}
 	next := fetchedAt.Add(withHints(base, doc.TTL, res.MaxAge))
-	var inserted int
+	var (
+		inserted  int
+		scheduled time.Time // next, or an earlier fetch requested meanwhile
+	)
 	err = s.writeFeed(ctx, f, func(cur store.Feed) (err error) {
+		scheduled = keepRequested(f, cur, next)
 		inserted, err = s.st.RecordFetchSuccess(ctx, store.FetchSuccess{
 			FeedID:        f.ID,
 			FetchedAt:     fetchedAt,
-			NextFetchAt:   keepRequested(f, cur, next),
+			NextFetchAt:   scheduled,
 			ETag:          res.ETag,
 			LastModified:  res.LastModified,
 			TTLSec:        ttlSec(doc.TTL),
@@ -116,31 +129,39 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 			return s.checkStored(ctx, f, next, err)
 		}
 		s.log.Error("could not store fetched entries", "feed", f.ID, "err", err)
-		return s.recordFailure(ctx, f, fetchedAt, base, fmt.Errorf("could not save entries: %w", err))
+		return s.recordFailure(ctx, f, fetchedAt, took, base, fmt.Errorf("could not save entries: %w", err))
 	}
-	if inserted > 0 {
-		s.log.Info("new entries", "feed", f.ID, "title", f.Title, "count", inserted)
-	}
+	s.logPolled(f, res.StatusCode, inserted, took, scheduled)
 	if doc.IconURL == "" {
 		s.backfillAvatar(ctx, f)
 	}
 	return time.Time{}
 }
 
+// logPolled logs the one info line of a poll whose outcome was stored: the
+// feed's URL (the new one after a followed permanent redirect) with its
+// password redacted, the response status, the number of new entries, how
+// long the fetch took and the next fetch as stored (scheduled). Nothing the
+// feed controls, such as its title, is logged.
+func (s *Scheduler) logPolled(f store.Feed, status, inserted int, took time.Duration, scheduled time.Time) {
+	s.log.Info("polled feed", "feed", f.ID, "url", redact(f.URL), "status", status, "new", inserted,
+		"took", took, "next_fetch", scheduled)
+}
+
 // recordFailure stores a failed poll: error_count + 1, last_error, and the
 // next poll after failureDelay (a quick first retry, then backoff, both
-// honouring Retry-After).
+// honouring Retry-After). took is how long the fetch took.
 //
 // A failure that cannot be stored leaves error_count where it was, so the
 // next poll would look like this same failure again (a first one gets the
 // quick retry) for as long as the database stays unwritable. The feed is
 // then held as long as one more failure in a row would delay it.
-func (s *Scheduler) recordFailure(ctx context.Context, f store.Feed, fetchedAt time.Time, base time.Duration, cause error) time.Time {
+func (s *Scheduler) recordFailure(ctx context.Context, f store.Feed, fetchedAt time.Time, took, base time.Duration, cause error) time.Time {
 	errorCount := f.ErrorCount + 1
 	next := fetchedAt.Add(failureDelay(base, errorCount, retryAfter(cause)))
 	hold := fetchedAt.Add(failureDelay(base, errorCount+1, retryAfter(cause)))
 	msg := failureMessage(cause)
-	s.log.Warn("feed fetch failed", "feed", f.ID, "url", redact(f.URL), "err", msg,
+	s.log.Warn("feed fetch failed", "feed", f.ID, "url", redact(f.URL), "err", msg, "took", took,
 		"consecutive_failures", errorCount, "next_fetch", next)
 	return s.checkStored(ctx, f, hold, s.writeFeed(ctx, f, func(cur store.Feed) error {
 		return s.st.RecordFetchError(ctx, f.ID, msg, fetchedAt, keepRequested(f, cur, next))
