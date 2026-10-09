@@ -72,6 +72,17 @@ const (
 	MinPollInterval = 5 * time.Minute
 )
 
+// Manual refresh.
+const (
+	// RefreshCheckInterval is how often the card grid asks whether the
+	// fetches a Refresh click started are done, to reload itself once they
+	// are.
+	RefreshCheckInterval = 2 * time.Second
+	// RefreshMaxChecks bounds those checks (about a minute in all): the grid
+	// is then reloaded with whatever has arrived.
+	RefreshMaxChecks = 30
+)
+
 // HTTP fetching.
 const (
 	// DefaultMaxBodyBytes caps response bodies (after decompression).

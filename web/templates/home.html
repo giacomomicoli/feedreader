@@ -1,8 +1,10 @@
-{{/* Home page: top bar for the current scope plus the card grid. */}}
-{{define "page-home"}}{{template "scope-view" .}}{{end}}
+{{/* Home page: top bar for the current scope plus the card grid, and the
+     idle check of a Refresh (outside #scope-view, which actions replace). */}}
+{{define "page-home"}}{{template "scope-view" .}}
+{{template "refresh-idle"}}{{end}}
 
 {{define "scope-view"}}
-<div id="scope-view" class="scope-view">
+<div id="scope-view" class="scope-view"{{if .OOB}} hx-swap-oob="true"{{end}}>
   <header class="topbar">
     <div class="topbar-title">
       <h1 class="page-title">{{.Title}}</h1>
@@ -29,7 +31,10 @@
         {{if .ID}}<input type="hidden" name="id" value="{{.ID}}">{{end}}
         <input type="hidden" name="filter" value="{{.Filter}}">
         <input type="hidden" name="back" value="{{.Href}}">
-        <button class="btn" type="submit">{{template "icon" "refresh"}}<span>Refresh</span></button>
+        <input type="hidden" name="reload" value="grid">
+        <input type="hidden" name="up_to" value="{{.UpTo}}">
+        {{/* The id lets htmx give the button its focus back when the grid is reloaded. */}}
+        <button class="btn" id="refresh-button" type="submit">{{template "icon" "refresh"}}<span>Refresh</span></button>
       </form>
       {{if .IsFeed}}<a class="btn" href="{{.SettingsHref}}">Feed settings</a>{{end}}
       {{end}}
@@ -144,5 +149,30 @@
   </div>
 </details>
 {{end}}
+
+{{/*
+  A Refresh from the grid (see handleRefresh and handleRefreshStatus): the
+  notice, plus the first check whether the fetches are done, swapped out of
+  band into #refresh-poll. Each check asks after a delay and replaces itself
+  with the next one, or, once the refresh is done or the checks give up,
+  with the idle element, the final notice and, only when the first page has
+  entries the grid did not have, the reloaded scope view (refresh-done;
+  refresh-quiet otherwise). The checks live outside #notice, so the message
+  of another action does not stop them; an error answer (retargeted to
+  #notice) does. htmx attributes only: no inline script, no hx-on.
+*/}}
+{{define "refresh-started"}}{{template "notice" .Notice}}
+{{template "refresh-poll" .Poll}}{{end}}
+
+{{define "refresh-poll"}}<div id="refresh-poll" hidden{{if .OOB}} hx-swap-oob="true"{{end}} hx-get="{{.URL}}" hx-trigger="load delay:{{.Delay}}" hx-target="this" hx-swap="outerHTML"></div>{{end}}
+
+{{define "refresh-idle"}}<div id="refresh-poll" hidden></div>{{end}}
+
+{{define "refresh-done"}}{{template "refresh-idle"}}
+<div id="notice" hx-swap-oob="innerHTML">{{template "notice" .Notice}}</div>
+{{template "scope-view" .View}}{{end}}
+
+{{define "refresh-quiet"}}{{template "refresh-idle"}}
+<div id="notice" hx-swap-oob="innerHTML">{{template "notice" .}}</div>{{end}}
 
 {{define "tag-options"}}{{range .}}<option value="{{.Name}}"></option>{{end}}{{end}}

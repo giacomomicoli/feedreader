@@ -174,6 +174,7 @@ type scopeView struct {
 	IsTag        bool
 	SettingsHref string
 	Grid         gridView
+	OOB          bool // swapped out of band: the grid's reload after a refresh
 }
 
 // navItem is a fixed sidebar entry (All, Watch later, Read later, Favourites).

@@ -128,6 +128,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /tags/suggest", s.handleSuggestTags)
 	mux.HandleFunc("POST /mark-read", s.handleMarkAllRead)
 	mux.HandleFunc("POST /refresh", s.handleRefresh)
+	mux.HandleFunc("GET /refresh/status", s.handleRefreshStatus)
 
 	mux.HandleFunc("GET /add", s.handleAddPage)
 	mux.HandleFunc("POST /add/resolve", s.handleAddResolve)

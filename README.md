@@ -62,7 +62,7 @@ You can edit the title and pick (or create) a folder before confirming. The **5 
 
 **Organizing.** Use the sidebar to switch between All, Watch later (videos), Read later (articles), Favourites, tags and folders. Create folders at the bottom of the sidebar; rename or delete them from the folder's view (deleting a folder keeps its sources). Open **Feed settings** on a source to rename it, move it, change how often it is checked, see when it was last fetched and any error, or unsubscribe (which deletes its entries, including saved ones).
 
-**Refreshing.** Sources are checked automatically: by default every 6 hours, and every hour for YouTube channels and playlists, whose feeds only list the latest 15 videos. **Refresh** checks the current source — or every source — right away. A failed check is retried after 15 minutes, then less and less often, down to once a day. A ⚠ icon next to a source means its last 3 fetches failed; the source settings show the error.
+**Refreshing.** Sources are checked automatically: by default every 6 hours, and every hour for YouTube channels and playlists, whose feeds only list the latest 15 videos. **Refresh** checks the current source — or every source — right away. Once those checks are done, the grid reloads itself if new entries arrived that it can show; otherwise it stays as it is (with the pages you loaded) and says there is nothing new. It stops waiting after about a minute and shows what has arrived; reload the page later for sources that take longer. A failed check is retried after 15 minutes, then less and less often, down to once a day. A ⚠ icon next to a source means its last 3 fetches failed; the source settings show the error.
 
 ## Configuration
 

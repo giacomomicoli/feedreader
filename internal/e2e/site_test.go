@@ -53,10 +53,11 @@ type feedSite struct {
 	base time.Time // publication time of post 0
 
 	mu      sync.Mutex
-	posts   []post // oldest first
-	version int    // bumped whenever the blog feed changes; drives the ETag
-	moved   bool   // blogFeedPath answers 301 to blogMovedPath
-	gone    bool   // the blog feed answers 404 at both paths
+	posts   []post        // oldest first
+	version int           // bumped whenever the blog feed changes; drives the ETag
+	moved   bool          // blogFeedPath answers 301 to blogMovedPath
+	gone    bool          // the blog feed answers 404 at both paths
+	hold    chan struct{} // when set, blog feed requests wait until it is closed
 	hits    []hit
 }
 
@@ -120,6 +121,23 @@ func (s *feedSite) moveFeed() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.moved = true
+}
+
+// holdBlogFeed makes blog feed requests wait until release is called (or
+// the request ends), so a test can look at the app while a fetch is in
+// flight. release is idempotent and also runs at cleanup, before the app and
+// the site are stopped (cleanups run last-registered first), so that no
+// request is left waiting.
+func (s *feedSite) holdBlogFeed(t *testing.T) (release func()) {
+	t.Helper()
+	hold := make(chan struct{})
+	s.mu.Lock()
+	s.hold = hold
+	s.mu.Unlock()
+	var once sync.Once
+	release = func() { once.Do(func() { close(hold) }) }
+	t.Cleanup(release)
+	return release
 }
 
 // setGone makes the blog feed answer 404 (gone=true) or come back.
@@ -196,8 +214,19 @@ func (s *feedSite) serveBlogPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveBlogFeed serves the RSS feed with an ETag and answers a matching
-// If-None-Match with 304. It also plays a moved (301) or gone (404) feed.
+// If-None-Match with 304. It also plays a moved (301) or gone (404) feed,
+// and waits first while the feed is held (holdBlogFeed).
 func (s *feedSite) serveBlogFeed(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	hold := s.hold
+	s.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-r.Context().Done():
+			return
+		}
+	}
 	s.mu.Lock()
 	switch {
 	case s.gone:
