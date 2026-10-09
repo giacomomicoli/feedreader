@@ -12,6 +12,7 @@ import (
 	"github.com/giacomomicoli/feedreader/internal/fetch"
 	"github.com/giacomomicoli/feedreader/internal/parse"
 	"github.com/giacomomicoli/feedreader/internal/resolve"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -120,7 +121,8 @@ func iconHint(raw string) string {
 }
 
 // subscriptionTitle picks the stored title: the user's (trimmed), else the
-// feed's own, else the host of its URL, else the URL itself.
+// feed's own, else the host of its URL, else the URL without its
+// credentials.
 func subscriptionTitle(userTitle string, fd *fetched) string {
 	if t := strings.TrimSpace(userTitle); t != "" {
 		return t
@@ -131,5 +133,5 @@ func subscriptionTitle(userTitle string, fd *fetched) string {
 	if u, err := url.Parse(fd.feedURL); err == nil && u.Hostname() != "" {
 		return u.Hostname()
 	}
-	return fd.feedURL
+	return safeurl.String(fd.feedURL) // titles are shown and logged
 }

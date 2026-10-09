@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/net/html"
 
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -66,9 +67,9 @@ func initials(title string) string {
 	return b.String()
 }
 
-// httpURL returns raw when it is an absolute http(s) URL with a host, and ""
-// otherwise. It is a defence in depth on top of html/template's own URL
-// filtering: feed-controlled links never become javascript:, data: or
+// httpURL returns raw when it is an absolute http(s) URL with a host name,
+// and "" otherwise. It is a defence in depth on top of html/template's own
+// URL filtering: feed-controlled links never become javascript:, data: or
 // relative URLs.
 func httpURL(raw string) string {
 	raw = strings.TrimSpace(raw)
@@ -76,7 +77,7 @@ func httpURL(raw string) string {
 		return ""
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Hostname() == "" { // "http://:8080/" has no host name
 		return ""
 	}
 	switch strings.ToLower(u.Scheme) {
@@ -86,14 +87,11 @@ func httpURL(raw string) string {
 	return ""
 }
 
-// redactURL hides the password of a URL (https://user:xxxxx@host/…) for
-// logs and error messages; feed URLs may embed credentials.
+// redactURL hides the credentials of a URL, its whole userinfo
+// (https://xxxxx@host/…), for logs and error messages; feed URLs may embed a
+// user name and password, or a token as the user name. See safeurl.
 func redactURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "(invalid URL)"
-	}
-	return u.Redacted()
+	return safeurl.String(raw)
 }
 
 // firstImage returns the src of the first <img> with an absolute http(s)

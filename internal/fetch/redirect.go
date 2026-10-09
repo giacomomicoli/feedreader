@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
+	"github.com/giacomomicoli/feedreader/internal/safeurl"
 )
 
 // checkRedirect is the http.Client redirect policy: a redirect loop or more
@@ -19,11 +20,16 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 			target: ErrScheme,
 		}
 	}
+	if req.URL.Hostname() == "" {
+		// As parseTarget: it would dial this machine, and the URL could not
+		// be fetched again once stored.
+		return &reasonError{msg: "refused redirect to a URL without a host name", target: errInvalidURL}
+	}
 	key := urlKey(req.URL)
 	for _, prev := range via {
 		if urlKey(prev.URL) == key {
 			return &reasonError{
-				msg:    "redirect loop via " + req.URL.Redacted(),
+				msg:    "redirect loop via " + safeurl.Redacted(req.URL),
 				target: ErrRedirects,
 			}
 		}

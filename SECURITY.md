@@ -27,6 +27,7 @@ service through the user's own browser or through hostile feed content:
 | Leaking your server's host name to third parties | `Referrer-Policy: no-referrer`; outbound links use `rel="noopener noreferrer"`. |
 | Oversized or hostile feeds | 10 MB cap on the decompressed body (gzip-bomb safe), request timeouts, at most 5 redirects, http/https only. Because parsing can need far more memory than the document's size, documents are also checked against structural limits before parsing (nesting depth 100, 200,000 XML elements and attributes, 64 namespaces in scope, 10,000 items; 200,000 JSON values), and each HTML field is bounded before and after sanitizing. Titles are capped at 200 characters and URLs at 2048 bytes. |
 | SQL injection | Parameterized queries only. |
+| Credentials in feed URLs (`https://user:password@…`, or a token as the user name) leaking into logs | Log lines, error messages and stored fetch errors show such URLs with their whole userinfo replaced by `xxxxx`. |
 
 Out of scope: protection against other people on the same network (there is no
 authentication by design).
