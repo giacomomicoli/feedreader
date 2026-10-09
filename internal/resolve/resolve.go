@@ -28,6 +28,10 @@ type Candidate struct {
 	URL   string // absolute feed URL
 	Title string // <link title>, may be ""
 	Type  string // MIME type from <link type>, may be ""
+	// IconURL is the YouTube channel's avatar, read from the channel page
+	// fetched to resolve a /@handle, /c/… or /user/… URL: an absolute http(s)
+	// URL, or "" (best-effort: no page was fetched, or it had no avatar).
+	IconURL string
 }
 
 // Result lists the feeds found; the first one is the pre-selected choice.

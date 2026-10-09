@@ -474,6 +474,6 @@ func TestHTMXSwapsOnlyErrorsTheAppRetargets(t *testing.T) {
 	// static/app.js keeps unretargeted errors out of the page and reports
 	// them in #notice instead.
 	js := f.get("/static/app.js").Body.String()
-	wantContains(t, page, `<script src="`+f.srv.static.url("app.js")+`" defer></script>`)
+	wantContains(t, page, `<script src="`+f.srv.static.url("app.js")+`"></script>`)
 	wantContains(t, js, "htmx:beforeSwap", "HX-Retarget", "shouldSwap = false", "htmx:responseError", "htmx:sendError", `getElementById("notice")`)
 }

@@ -45,6 +45,11 @@ const (
 	maxTitleRunes = 200
 )
 
+// MaxIconURLBytes caps a candidate's IconURL; a longer one is dropped. Code
+// that gets an icon URL back from elsewhere (the add form) applies the same
+// cap.
+const MaxIconURLBytes = 2048
+
 // feedLink is a feed <link> element as written in the page.
 type feedLink struct {
 	href, title, typ string

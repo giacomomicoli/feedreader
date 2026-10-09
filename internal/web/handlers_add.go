@@ -62,12 +62,13 @@ type previewView struct {
 	Kind       store.Kind
 	KindLabel  string
 	SiteURL    string
+	IconURL    string // icon found while resolving (a channel avatar), or ""
 	EntryCount int
 	CountText  string
 	UnreadNote string
 }
 
-func newPreviewView(feedURL string, kind store.Kind, siteURL string, n int) previewView {
+func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n int) previewView {
 	if kind != store.KindYouTube {
 		kind = store.KindRSS
 	}
@@ -78,6 +79,9 @@ func newPreviewView(feedURL string, kind store.Kind, siteURL string, n int) prev
 		SiteURL:    httpURL(siteURL),
 		EntryCount: n,
 		CountText:  pluralEntries(n) + " found.",
+	}
+	if len(iconURL) <= maxURLLen {
+		p.IconURL = httpURL(iconURL)
 	}
 	switch {
 	case n == 0:
@@ -128,7 +132,8 @@ func (s *server) handleAddResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(res.Candidates) == 1 {
-		s.previewStep(w, r, res.Candidates[0].URL, input)
+		c := res.Candidates[0]
+		s.previewStep(w, r, c.URL, c.IconURL, input)
 		return
 	}
 	v.Step = stepChoose
@@ -160,7 +165,7 @@ func (s *server) handleAddPreview(w http.ResponseWriter, r *http.Request) {
 	if input == "" {
 		input = feedURL
 	}
-	s.previewStep(w, r, feedURL, input)
+	s.previewStep(w, r, feedURL, "", input)
 }
 
 // normalizeFeedURL accepts a typed feed URL, defaulting to https:// when
@@ -177,8 +182,9 @@ func normalizeFeedURL(raw string) string {
 }
 
 // previewStep shows "already subscribed", an inline fetch error, or the
-// confirmation form for feedURL.
-func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, input string) {
+// confirmation form for feedURL, which carries iconURL (what the resolver
+// found, or "") on to the subscription.
+func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, iconURL, input string) {
 	ctx := r.Context()
 	v := addView{Step: stepURL, URL: input}
 	if s.renderIfSubscribed(w, r, feedURL, v) {
@@ -210,7 +216,7 @@ func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, in
 		return
 	}
 	v.Step = stepConfirm
-	v.Preview = newPreviewView(finalURL, p.Kind, p.SiteURL, p.EntryCount)
+	v.Preview = newPreviewView(finalURL, p.Kind, p.SiteURL, iconURL, p.EntryCount)
 	v.Title = p.Title
 	v.Folders = folderOptions(folders, 0)
 	s.renderAdd(w, r, http.StatusOK, v)
@@ -261,7 +267,7 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 	entries, _ := strconv.Atoi(f.Get("entries"))
 	v := addView{
 		Step:        stepConfirm,
-		Preview:     newPreviewView(feedURL, store.Kind(f.Get("kind")), f.Get("site_url"), max(entries, 0)),
+		Preview:     newPreviewView(feedURL, store.Kind(f.Get("kind")), f.Get("site_url"), f.Get("icon_url"), max(entries, 0)),
 		Title:       cleanName(f.Get("title")),
 		NewSelected: f.Get("folder") == folderNew,
 		NewFolder:   cleanName(f.Get("new_folder")),
@@ -291,7 +297,8 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	feed, err := s.sched.Subscribe(ctx, sched.Subscription{FeedURL: feedURL, Title: v.Title, FolderID: folderID})
+	feed, err := s.sched.Subscribe(ctx, sched.Subscription{FeedURL: feedURL, Title: v.Title, FolderID: folderID,
+		IconURL: v.Preview.IconURL})
 	if err != nil {
 		if created {
 			s.rollbackFolder(context.WithoutCancel(ctx), folderID)

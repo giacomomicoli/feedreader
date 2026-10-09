@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -172,6 +173,81 @@ func TestPreview_YouTubeFeedIsKindYouTube(t *testing.T) {
 	e := feedEntries(t, st, feed.ID)["yt:video:vid00000001"]
 	if e.URL != "https://www.youtube.com/watch?v=vid00000001" || e.ThumbnailURL != "https://i1.ytimg.com/vi/vid00000001/hqdefault.jpg" {
 		t.Errorf("video entry = url %q thumbnail %q", e.URL, e.ThumbnailURL)
+	}
+}
+
+// TestSubscribe_ChannelAvatarFoundByTheResolverIsStoredAndKept wires the
+// real resolver over ResolveFetcher, as the app does: the avatar comes from
+// the channel page fetched for the channel ID, with no request of its own,
+// and polls of the feed (which has no icon) keep it.
+func TestSubscribe_ChannelAvatarFoundByTheResolverIsStoredAndKept(t *testing.T) {
+	const handle = "https://www.youtube.com/@testchannel"
+	page := chanPage()
+	page.FinalURL = handle
+	st := openStore(t)
+	clock := newClock(t0)
+	fetcher := routeFetcher(map[string]*fetch.Result{handle: page, chanFeedURL: chanFeed(t, chanFeedURL)})
+	s := newClockedScheduler(t, st, fetcher, clock)
+
+	res, err := resolve.New(s.ResolveFetcher()).Resolve(t.Context(), handle)
+	mustNoErr(t, err)
+	c := res.Candidates[0]
+	if c.URL != chanFeedURL || c.IconURL != wantAvatar(t) {
+		t.Fatalf("candidate = %+v", c)
+	}
+	_, err = s.Preview(t.Context(), c.URL)
+	mustNoErr(t, err)
+	feed, err := s.Subscribe(t.Context(), Subscription{FeedURL: c.URL, IconURL: c.IconURL})
+	mustNoErr(t, err)
+	if feed.IconURL != c.IconURL {
+		t.Errorf("stored icon = %q; want the avatar %q", feed.IconURL, c.IconURL)
+	}
+	if n := fetcher.CallCount(); n != 2 {
+		t.Errorf("fetches = %d; want 2 (channel page, feed)", n)
+	}
+
+	clock.Advance(config.DefaultPollInterval)
+	pollOnce(t, s, st, feed.ID)
+	if got := getFeed(t, st, feed.ID); got.IconURL != c.IconURL || got.LastFetchedAt.Equal(feed.LastFetchedAt) {
+		t.Errorf("after a poll: icon %q fetched %s; want the avatar kept by a new fetch", got.IconURL, got.LastFetchedAt)
+	}
+}
+
+func TestSubscribe_IconURLOnlyForAFeedWithoutIconAndOnlyHTTP(t *testing.T) {
+	const avatar = "https://yt3.googleusercontent.com/synthetic-avatar"
+	rssBody := atomDoc("Site feed", itemsNewestFirst("e", 1, t0)...) // has <icon>
+	for _, tc := range []struct {
+		name, url string
+		res       *fetch.Result
+		icon      string
+		want      string
+	}{
+		{"feed's own icon wins", feedURL, ok(feedURL, rssBody), avatar, "https://site.example/icon.png"},
+		{"used when the feed has none", chanFeedURL, nil, avatar, avatar},
+		{"trimmed", chanFeedURL, nil, "  " + avatar + "\n", avatar},
+		// Not usable: the channel page is looked up instead, and has none.
+		{"none", chanFeedURL, nil, "", ""},
+		{"javascript", chanFeedURL, nil, "javascript:alert(1)", ""},
+		{"data", chanFeedURL, nil, "data:image/png;base64,AAAA", ""},
+		{"ftp", chanFeedURL, nil, "ftp://files.example/a.png", ""},
+		{"relative", chanFeedURL, nil, "/a.png", ""},
+		{"no host", chanFeedURL, nil, "https:///a.png", ""},
+		{"unparsable", chanFeedURL, nil, "https://[::1/a.png", ""},
+		{"too long", chanFeedURL, nil, avatar + "/" + strings.Repeat("a", resolve.MaxIconURLBytes), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := tc.res
+			if res == nil {
+				res = chanFeed(t, tc.url)
+			}
+			st := openStore(t)
+			s := newClockedScheduler(t, st, routeFetcher(map[string]*fetch.Result{tc.url: res}), newClock(t0))
+			feed, err := s.Subscribe(t.Context(), Subscription{FeedURL: tc.url, IconURL: tc.icon})
+			mustNoErr(t, err)
+			if feed.IconURL != tc.want {
+				t.Errorf("stored icon = %q; want %q", feed.IconURL, tc.want)
+			}
+		})
 	}
 }
 

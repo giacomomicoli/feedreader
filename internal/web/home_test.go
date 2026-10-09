@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -288,6 +289,45 @@ func TestCardThumbnailFallbacks(t *testing.T) {
 	}
 	body = e.get("/?scope=feed&id=" + idStr(g.ID)).Body.String()
 	wantContains(t, body, `<span class="thumb-initials">GH</span>`, "card-thumb "+paletteClass(g.ID))
+}
+
+// TestBrokenIconsFallBackToInitials: feed icons are hot-linked and can stop
+// loading. The feed's initials follow every icon, hidden by the stylesheet
+// while the icon is there; static/app.js removes an icon that fails to load,
+// listening before any can fail.
+func TestBrokenIconsFallBackToInitials(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+	now := time.Now().Add(-time.Hour)
+	a, err := e.st.CreateFeed(ctx, store.NewFeed{Kind: store.KindRSS, URL: "https://example.com/feed",
+		Title: "Ada Lovelace Weekly", IconURL: "https://example.com/icon.png", FetchedAt: now},
+		[]store.NewEntry{{GUID: "1", Title: "Uses icon", PublishedAt: now}}, config.InitialUnread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := e.st.CreateFeed(ctx, store.NewFeed{Kind: store.KindRSS, URL: "https://example.org/feed",
+		Title: "Grace Hopper", FetchedAt: now}, nil, config.InitialUnread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	icon := `<img src="https://example.com/icon.png" alt="" loading="lazy" decoding="async">`
+	body := e.get("/").Body.String()
+	wantContains(t, body,
+		// sidebar and card source line
+		`<span class="avatar `+paletteClass(a.ID)+`" aria-hidden="true">`+icon+`<span class="avatar-initials">`+initials(a.Title)+`</span></span>`,
+		`<span class="avatar `+paletteClass(g.ID)+`" aria-hidden="true"><span class="avatar-initials">`+initials(g.Title)+`</span></span>`,
+		// card thumbnail
+		`<img class="thumb-icon" src="https://example.com/icon.png" alt="" loading="lazy" decoding="async">`,
+	)
+	if !regexp.MustCompile(`class="thumb-icon"[^>]*>\s*<span class="thumb-initials">` + initials(a.Title) + `</span>`).MatchString(body) {
+		t.Error("the icon thumbnail is not followed by the feed's initials")
+	}
+	wantContains(t, body, `<script src="`+e.srv.static.url("app.js")+`"></script>`) // not deferred
+
+	css := e.get("/static/app.css").Body.String()
+	wantContains(t, css, ".avatar img + .avatar-initials,\n.thumb-icon + .thumb-initials { display: none; }")
+	js := e.get("/static/app.js").Body.String()
+	wantContains(t, js, `document.addEventListener("error"`, `matches(".avatar > img, .thumb-icon")`, "img.remove()", "}, true);")
 }
 
 func TestFutureAndPastPublishedTimesAreRelativeWithAbsoluteTooltip(t *testing.T) {

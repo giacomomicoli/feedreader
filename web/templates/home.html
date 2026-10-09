@@ -92,8 +92,8 @@
 {{define "card"}}
 <article class="card{{if .IsRead}} is-read{{end}}" id="entry-{{.ID}}" hx-target="this" hx-swap="outerHTML">
   <a class="card-thumb {{.Avatar.Palette}}"{{if .Href}} href="{{.Href}}" target="_blank" rel="noopener noreferrer"{{end}} tabindex="-1" aria-hidden="true">
-    {{if .Thumb}}<img class="{{if .ThumbIsIcon}}thumb-icon{{else}}thumb-image{{end}}" src="{{.Thumb}}" alt="" loading="lazy" decoding="async">
-    {{else}}<span class="thumb-initials">{{.Avatar.Initials}}</span>{{end}}
+    {{if .Thumb}}<img class="{{if .ThumbIsIcon}}thumb-icon{{else}}thumb-image{{end}}" src="{{.Thumb}}" alt="" loading="lazy" decoding="async">{{end}}
+    {{if or (not .Thumb) .ThumbIsIcon}}<span class="thumb-initials">{{.Avatar.Initials}}</span>{{end}}
   </a>
   <div class="card-body">
     <div class="card-text">

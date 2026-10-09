@@ -104,6 +104,21 @@ func (s *Scheduler) addFetch(ctx context.Context, r fetch.Request) (*fetch.Resul
 	return s.fetcher.Fetch(ctx, r)
 }
 
+// iconHint returns the icon a Subscription carries, trimmed, when it is an
+// absolute http(s) URL of at most resolve.MaxIconURLBytes bytes, else "":
+// it came back through the add form.
+func iconHint(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) > resolve.MaxIconURLBytes {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	return raw
+}
+
 // subscriptionTitle picks the stored title: the user's (trimmed), else the
 // feed's own, else the host of its URL, else the URL itself.
 func subscriptionTitle(userTitle string, fd *fetched) string {

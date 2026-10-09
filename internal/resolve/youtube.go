@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
@@ -17,6 +18,11 @@ const (
 	ytFeedBase = "https://www.youtube.com" + ytFeedPath
 	ytPageBase = "https://www.youtube.com"
 )
+
+// ytAvatarPx is the avatar size asked of YouTube's image server. Channel
+// pages advertise a 900 px image; the UI shows avatars at 20 CSS px, so 88
+// px (the size YouTube's own pages use) is ample even on dense screens.
+const ytAvatarPx = 88
 
 var (
 	// channelIDPattern: "UC" followed by 22 base64url characters.
@@ -136,43 +142,44 @@ func (r *Resolver) resolveYouTube(ctx context.Context, u *url.URL, ref ytRef) (*
 	case ytPlaylist:
 		return single(Candidate{URL: playlistFeedURL(ref.id)}), nil
 	case ytPage:
-		id, err := r.channelIDFromPage(ctx, ref.page)
+		id, avatar, err := r.channelFromPage(ctx, ref.page)
 		if err != nil {
 			return nil, err
 		}
-		return single(Candidate{URL: channelFeedURL(id)}), nil
+		return single(Candidate{URL: channelFeedURL(id), IconURL: avatar}), nil
 	default:
 		return nil, fmt.Errorf("resolve %s: %w", u.Redacted(), ErrYouTubeID)
 	}
 }
 
-// channelIDFromPage fetches a YouTube /@handle, /c/… or /user/… page and
-// reads the channel ID from it.
+// channelFromPage fetches a YouTube /@handle, /c/… or /user/… page and
+// reads the channel ID from it, and the channel's avatar when the page has
+// one (best-effort: "" otherwise).
 //
 // When YouTube answered but the page is unusable (HTTP error, oversized,
 // redirect loop) or carries no recognisable ID — e.g. a consent
 // interstitial or changed markup — the error matches ErrYouTubeID (and the
 // fetch error, if any). Network failures are returned as they are.
-func (r *Resolver) channelIDFromPage(ctx context.Context, page string) (string, error) {
+func (r *Resolver) channelFromPage(ctx context.Context, page string) (id, avatar string, err error) {
 	pageURL, err := url.Parse(page)
 	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", page, err)
+		return "", "", fmt.Errorf("resolve %s: %w", page, err)
 	}
 	res, err := r.fetch(ctx, page, fetch.HTMLAccept)
 	if err != nil {
 		if isURLLevelError(err) {
-			return "", fmt.Errorf("resolve %s: %w: %w", page, ErrYouTubeID, err)
+			return "", "", fmt.Errorf("resolve %s: %w: %w", page, ErrYouTubeID, err)
 		}
-		return "", fmt.Errorf("resolve %s: %w", page, err)
+		return "", "", fmt.Errorf("resolve %s: %w", page, err)
 	}
-	id, ok := channelIDFromHTML(res.Body, finalURL(res, pageURL))
+	id, avatar, ok := channelFromHTML(res.Body, finalURL(res, pageURL))
 	if !ok {
-		return "", fmt.Errorf("resolve %s: %w", page, ErrYouTubeID)
+		return "", "", fmt.Errorf("resolve %s: %w", page, ErrYouTubeID)
 	}
-	return id, nil
+	return id, avatar, nil
 }
 
-// channelIDFromHTML extracts the page's own channel ID from, in order of
+// channelFromHTML extracts the page's own channel ID from, in order of
 // preference:
 //
 //  1. <link rel="canonical" href="https://www.youtube.com/channel/UC…">
@@ -184,8 +191,13 @@ func (r *Resolver) channelIDFromPage(ctx context.Context, page string) (string, 
 // links on the page (featured channels, scripts) are ignored, and the
 // whole document is scanned because YouTube emits these elements after the
 // head has implicitly ended.
-func channelIDFromHTML(body []byte, pageURL *url.URL) (string, bool) {
+//
+// The same scan reads the channel's avatar from the page's Open Graph image
+// (<meta property="og:image">), when the page was served by YouTube; see
+// avatarURL. The avatar is best-effort: "" does not make the page unusable.
+func channelFromHTML(body []byte, pageURL *url.URL) (id, avatar string, ok bool) {
 	var canonical, identifier, alternate string
+	ytPage := isYouTubeHost(pageURL)
 	_ = scanTags(bytes.NewReader(body), []string{"link", "meta"}, func(t tag) bool {
 		switch t.name {
 		case "link":
@@ -198,20 +210,82 @@ func channelIDFromHTML(body []byte, pageURL *url.URL) (string, bool) {
 				alternate = channelIDFromFeedURL(t.attrs["href"], pageURL)
 			}
 		case "meta":
-			if identifier == "" && strings.EqualFold(trimHTMLSpace(t.attrs["itemprop"]), "identifier") {
-				if id := trimHTMLSpace(t.attrs["content"]); channelIDPattern.MatchString(id) {
-					identifier = id
+			switch {
+			case identifier == "" && strings.EqualFold(trimHTMLSpace(t.attrs["itemprop"]), "identifier"):
+				if v := trimHTMLSpace(t.attrs["content"]); channelIDPattern.MatchString(v) {
+					identifier = v
 				}
+			case ytPage && avatar == "" && strings.EqualFold(trimHTMLSpace(t.attrs["property"]), "og:image"):
+				avatar = avatarURL(t.attrs["content"])
 			}
 		}
-		return canonical == "" // the preferred source ends the scan
+		// The preferred ID source and the avatar end the scan; YouTube
+		// emits the avatar after the canonical link.
+		return canonical == "" || (ytPage && avatar == "")
 	})
-	for _, id := range []string{canonical, identifier, alternate} {
+	for _, id = range []string{canonical, identifier, alternate} {
 		if id != "" {
-			return id, true
+			return id, avatar, true
 		}
 	}
-	return "", false
+	return "", "", false
+}
+
+// avatarURL returns the channel avatar named by an og:image content
+// attribute, or "" unless it is an absolute http(s) URL (as Open Graph
+// requires) of at most MaxIconURLBytes bytes. An image on YouTube's image
+// servers is asked for at ytAvatarPx (see smallAvatar).
+func avatarURL(content string) string {
+	content = trimHTMLSpace(content)
+	if len(content) > MaxIconURLBytes {
+		return "" // before parsing, which copies it several times
+	}
+	u, err := url.Parse(content)
+	if err != nil || !isHTTPURL(u) {
+		return ""
+	}
+	smallAvatar(u)
+	s := u.String()
+	if len(s) > MaxIconURLBytes {
+		return ""
+	}
+	return s
+}
+
+// smallAvatar rewrites the size option of an image URL on Google's image
+// servers, the last "=" options of the path ("…=s900-c-k-c0x00ffffff-no-rj"
+// → "…=s88-c-k-c0x00ffffff-no-rj"), to ytAvatarPx. Other URLs, and URLs
+// without a size option, are left as they are.
+func smallAvatar(u *url.URL) {
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if !strings.HasSuffix(host, ".googleusercontent.com") && !strings.HasSuffix(host, ".ggpht.com") {
+		return
+	}
+	i := strings.LastIndexByte(u.Path, '=')
+	if i < 0 {
+		return
+	}
+	opts := strings.Split(u.Path[i+1:], "-")
+	for j, o := range opts {
+		if isSizeOption(o) {
+			opts[j] = "s" + strconv.Itoa(ytAvatarPx)
+			u.Path, u.RawPath = u.Path[:i+1]+strings.Join(opts, "-"), ""
+			return
+		}
+	}
+}
+
+// isSizeOption reports whether o is an image size option: "s" and digits.
+func isSizeOption(o string) bool {
+	if len(o) < 2 || o[0] != 's' {
+		return false
+	}
+	for _, c := range o[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // channelIDFromChannelURL returns the ID in a YouTube /channel/UC… URL, or
@@ -231,11 +305,58 @@ func channelIDFromChannelURL(href string, base *url.URL) string {
 // URL, or "".
 func channelIDFromFeedURL(href string, base *url.URL) string {
 	u, err := base.Parse(trimHTMLSpace(href))
-	if err != nil || !isHTTPURL(u) || !isYouTubeHost(u) || u.Path != ytFeedPath {
+	if err != nil {
+		return ""
+	}
+	return channelIDOfFeed(u)
+}
+
+// channelIDOfFeed returns the channel_id of u when it is a YouTube channel
+// feed URL, or "".
+func channelIDOfFeed(u *url.URL) string {
+	if !isHTTPURL(u) || !isYouTubeHost(u) || u.Path != ytFeedPath {
 		return ""
 	}
 	if id := u.Query().Get("channel_id"); channelIDPattern.MatchString(id) {
 		return id
 	}
 	return ""
+}
+
+// IsChannelFeed reports whether feedURL is the video feed of a YouTube
+// channel (youtube.com/feeds/videos.xml?channel_id=UC…), as opposed to a
+// playlist's or any other feed.
+func IsChannelFeed(feedURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(feedURL))
+	return err == nil && channelIDOfFeed(u) != ""
+}
+
+// ChannelAvatar returns the avatar of the YouTube channel whose video feed
+// is feedURL, read from the channel's page (youtube.com/channel/UC…) with
+// one request; see channelFromHTML. It is best-effort: "" when the page has
+// no usable avatar or is not that channel's page. For a feed that is not a
+// channel feed (IsChannelFeed) it returns "" without a request. Errors are
+// those of the fetch.
+func (r *Resolver) ChannelAvatar(ctx context.Context, feedURL string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(feedURL))
+	if err != nil {
+		return "", nil
+	}
+	id := channelIDOfFeed(u)
+	if id == "" {
+		return "", nil
+	}
+	page := ytPageURL("channel", id)
+	pageURL, err := url.Parse(page)
+	if err != nil {
+		return "", fmt.Errorf("channel avatar %s: %w", page, err)
+	}
+	res, err := r.fetch(ctx, page, fetch.HTMLAccept)
+	if err != nil {
+		return "", fmt.Errorf("channel avatar %s: %w", page, err)
+	}
+	if got, avatar, ok := channelFromHTML(res.Body, finalURL(res, pageURL)); ok && got == id {
+		return avatar, nil
+	}
+	return "", nil
 }

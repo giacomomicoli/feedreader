@@ -3,6 +3,7 @@ package resolve
 import (
 	"context"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,11 @@ func FuzzResolveInput(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, raw string) {
+		if IsChannelFeed(raw) {
+			if u, err := url.Parse(strings.TrimSpace(raw)); err != nil || !isHTTPURL(u) || !isYouTubeHost(u) {
+				t.Fatalf("IsChannelFeed(%q) for a URL that is not on YouTube", raw)
+			}
+		}
 		res, err := New(newFake()).Resolve(context.Background(), raw)
 		if err != nil {
 			return
@@ -51,13 +57,25 @@ func FuzzDiscoverLinks(f *testing.F) {
 	})
 }
 
-func FuzzChannelIDFromHTML(f *testing.F) {
+func FuzzChannelFromHTML(f *testing.F) {
 	f.Add([]byte(ytHandlePage(canonicalLink(ytChannelID))))
 	f.Add([]byte(identifierMeta("UC") + rssAlternate("UC_")))
+	f.Add([]byte(ytHandlePage(canonicalLink(ytChannelID) + ogImage(ytAvatar900))))
+	f.Add([]byte(ogImage("https://yt3.ggpht.com/a=s-s1x-=s") + ogImage("javascript:x") + identifierMeta(ytChannelID)))
 	page, _ := url.Parse("https://www.youtube.com/@x")
 	f.Fuzz(func(t *testing.T, body []byte) {
-		if id, ok := channelIDFromHTML(body, page); ok && !channelIDPattern.MatchString(id) {
+		id, avatar, ok := channelFromHTML(body, page)
+		if ok && !channelIDPattern.MatchString(id) {
 			t.Fatalf("invalid channel id %q", id)
+		}
+		if !ok && avatar != "" {
+			t.Fatalf("avatar %q without a channel", avatar)
+		}
+		if avatar == "" {
+			return
+		}
+		if u, err := url.Parse(avatar); err != nil || !isHTTPURL(u) || len(avatar) > MaxIconURLBytes {
+			t.Fatalf("unusable avatar %q", avatar)
 		}
 	})
 }

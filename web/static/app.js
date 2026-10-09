@@ -1,5 +1,6 @@
-// feedreader — failed htmx requests. Plain script, no build step; loaded
-// from 'self' as the Content-Security-Policy requires.
+// feedreader — failed htmx requests and broken feed icons. Plain script, no
+// build step; loaded from 'self' as the Content-Security-Policy requires,
+// and not deferred (see the end of the file).
 //
 // The app answers a failed action with a message that it retargets to
 // #notice (HX-Retarget). Any other error response, such as an empty 502 from
@@ -41,4 +42,17 @@
   document.addEventListener("htmx:sendError", function () {
     showError("Could not reach the server. Reload the page and try again.");
   });
+
+  // Feed icons and channel avatars are hot-linked and can stop loading (a
+  // site drops its favicon, a channel changes its avatar). The feed's
+  // initials follow every icon, hidden by the stylesheet while the icon is
+  // there, so removing a broken icon shows them. Load errors do not bubble:
+  // the listener captures them on the document, and it is in place before
+  // any icon can fail because this script is not deferred.
+  document.addEventListener("error", function (evt) {
+    var img = evt.target;
+    if (img instanceof HTMLImageElement && img.matches(".avatar > img, .thumb-icon")) {
+      img.remove();
+    }
+  }, true);
 })();

@@ -74,4 +74,5 @@
 {{end}}{{template "sidebar-tags" .Tags}}
 {{end}}
 
-{{define "avatar"}}<span class="avatar {{.Palette}}" aria-hidden="true">{{if .IconURL}}<img src="{{.IconURL}}" alt="" loading="lazy" decoding="async">{{else}}{{.Initials}}{{end}}</span>{{end}}
+{{/* The initials stay hidden behind an icon unless static/app.js removes it because it failed to load. */}}
+{{define "avatar"}}<span class="avatar {{.Palette}}" aria-hidden="true">{{if .IconURL}}<img src="{{.IconURL}}" alt="" loading="lazy" decoding="async">{{end}}<span class="avatar-initials">{{.Initials}}</span></span>{{end}}

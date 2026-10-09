@@ -7,6 +7,9 @@
   those always carry HX-Retarget: #notice (writeError). Any other error, such
   as a reverse proxy's 502 while the service restarts, is never swapped into
   the card or grid it was aimed at; static/app.js reports it in #notice.
+
+  static/app.js is not deferred: it only adds listeners on the document, and
+  the one for broken feed icons must be in place before any image can fail.
 */}}
 {{define "layout"}}<!doctype html>
 <html lang="en">
@@ -20,7 +23,7 @@
 <link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
 <link rel="stylesheet" href="{{asset "app.css"}}">
 <script src="{{asset "htmx.min.js"}}" defer></script>
-<script src="{{asset "app.js"}}" defer></script>
+<script src="{{asset "app.js"}}"></script>
 </head>
 <body>
 <div class="app">

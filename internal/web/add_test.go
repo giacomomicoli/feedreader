@@ -113,6 +113,64 @@ func TestAddResolveSingleCandidateGoesStraightToPreview(t *testing.T) {
 	}
 }
 
+func TestAddChannelAvatarIsCarriedToTheSubscription(t *testing.T) {
+	const avatar = "https://yt3.googleusercontent.com/synthetic-avatar"
+	e := newTestEnv(t)
+	e.res.results["youtube.com/@go"] = &resolve.Result{Candidates: []resolve.Candidate{{URL: ytFeedURL, IconURL: avatar}}}
+	e.stubPreview(ytFeedURL, "The Go Channel", store.KindYouTube, 15)
+	hidden := `<input type="hidden" name="icon_url" value="` + avatar + `">`
+
+	w := e.post("/add/resolve", url.Values{"url": {"youtube.com/@go"}}, htmx)
+	wantStatus(t, w, http.StatusOK)
+	wantContains(t, w.Body.String(), `hx-post="/add/subscribe"`, hidden)
+
+	// A form error keeps it.
+	form := url.Values{"feed_url": {ytFeedURL}, "kind": {"youtube"}, "icon_url": {avatar}, "folder": {"new"}}
+	w = e.post("/add/subscribe", form, htmx)
+	wantStatus(t, w, http.StatusUnprocessableEntity)
+	wantContains(t, w.Body.String(), "Enter a name for the new folder.", hidden)
+
+	form.Set("folder", "0")
+	wantStatus(t, e.post("/add/subscribe", form, htmx), http.StatusOK)
+	if len(e.sched.subs) != 1 || e.sched.subs[0].IconURL != avatar {
+		t.Errorf("subscriptions = %+v; want the avatar passed on", e.sched.subs)
+	}
+}
+
+func TestAddWithoutUsableAvatarSubscribesWithoutOne(t *testing.T) {
+	e := newTestEnv(t)
+	e.res.results["youtube.com/channel/UCabc"] = &resolve.Result{Candidates: []resolve.Candidate{{URL: ytFeedURL}}}
+	e.stubPreview(ytFeedURL, "The Go Channel", store.KindYouTube, 15)
+	w := e.post("/add/resolve", url.Values{"url": {"youtube.com/channel/UCabc"}}, htmx)
+	wantStatus(t, w, http.StatusOK)
+	wantNotContains(t, w.Body.String(), `name="icon_url"`)
+
+	for _, icon := range []string{
+		"",
+		"javascript:alert(1)",
+		"data:image/png;base64,AAAA",
+		"/relative.png",
+		"https://yt3.googleusercontent.com/" + strings.Repeat("a", maxURLLen),
+	} {
+		e.sched.subs = nil
+		form := url.Values{"feed_url": {ytFeedURL}, "kind": {"youtube"}, "icon_url": {icon}, "folder": {"new"}}
+		w := e.post("/add/subscribe", form, htmx)
+		wantStatus(t, w, http.StatusUnprocessableEntity)
+		wantNotContains(t, w.Body.String(), `name="icon_url"`)
+
+		form.Set("folder", "0")
+		wantStatus(t, e.post("/add/subscribe", form, htmx), http.StatusOK)
+		if len(e.sched.subs) != 1 || e.sched.subs[0].IconURL != "" {
+			t.Errorf("icon_url %.40q: subscriptions = %+v; want no icon", icon, e.sched.subs)
+		}
+		f, err := e.st.GetFeedByURL(context.Background(), ytFeedURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantStatus(t, e.post("/feeds/"+idStr(f.ID)+"/unsubscribe", nil), http.StatusSeeOther)
+	}
+}
+
 func TestAddDirectFeedURLSkipsDiscovery(t *testing.T) {
 	e := newTestEnv(t)
 	e.stubPreview(blogFeedURL, "Blog", store.KindRSS, 3)
