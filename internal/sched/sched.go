@@ -9,6 +9,7 @@
 package sched
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -43,6 +44,10 @@ type Subscription struct {
 	FeedURL  string
 	Title    string // user-edited; "" = use the feed's own title
 	FolderID int64  // 0 = uncategorized
+	// IconURL is the icon the resolver found for the feed (a YouTube channel's
+	// avatar), stored when the feed has none of its own and it is an http(s)
+	// URL; "" = none.
+	IconURL string
 }
 
 // addFetchSlots bounds the add flow's concurrent fetches (Preview, and
@@ -260,8 +265,9 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 //
 // The stored URL is the final feed URL (after permanent redirects). The
 // title is sub.Title, else the feed's own title, else the URL's host. The
-// first poll is scheduled one interval (raised by the feed's <ttl> and
-// Cache-Control max-age hints) after now.
+// icon is the feed's own, else sub.IconURL. The first poll is scheduled
+// one interval (raised by the feed's <ttl> and Cache-Control max-age hints)
+// after now.
 func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed, error) {
 	feedURL := strings.TrimSpace(sub.FeedURL)
 	if feedURL == "" {
@@ -285,7 +291,7 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 		SiteURL:       fd.doc.SiteURL,
 		Title:         subscriptionTitle(sub.Title, fd),
 		OriginalTitle: fd.doc.Title,
-		IconURL:       fd.doc.IconURL,
+		IconURL:       cmp.Or(fd.doc.IconURL, httpURL(sub.IconURL)),
 		FolderID:      sub.FolderID,
 		ETag:          fd.etag,
 		LastModified:  fd.lastModified,

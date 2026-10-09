@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -160,6 +161,20 @@ func rssAlternate(id string) string {
 	return `<link rel="alternate" type="application/rss+xml" title="RSS" href="https://www.youtube.com/feeds/videos.xml?channel_id=` + id + `">`
 }
 
+// Synthetic channel avatar on YouTube's image server, as advertised by the
+// page (900 px) and as the resolver asks for it (ytAvatarPx).
+const (
+	ytAvatarOpts = "-c-k-c0x00ffffff-no-rj"
+	ytAvatarBase = "https://yt3.googleusercontent.com/synthetic_Avatar-Id0123456789"
+	ytAvatar900  = ytAvatarBase + "=s900" + ytAvatarOpts
+)
+
+var ytAvatarSmall = ytAvatarBase + "=s" + strconv.Itoa(ytAvatarPx) + ytAvatarOpts
+
+func ogImage(content string) string {
+	return `<meta property="og:image" content="` + content + `">`
+}
+
 func TestResolve_YouTube_HandleChannelUserURLs_FetchPageWithHTMLAccept(t *testing.T) {
 	for _, tc := range []struct{ raw, page string }{
 		{"https://www.youtube.com/@GoogleDevelopers", "https://www.youtube.com/@GoogleDevelopers"},
@@ -216,14 +231,101 @@ func TestResolve_YouTube_HandlePage_ChannelIDSources(t *testing.T) {
 	}
 }
 
+func TestResolve_YouTube_HandlePage_AvatarFromTheSamePage(t *testing.T) {
+	// As on the real page, the og:image comes after the canonical link.
+	f := newFake()
+	f.serve("https://www.youtube.com/@GoogleDevelopers", ctHTML,
+		ytHandlePage(canonicalLink(ytChannelID)+`<meta property="og:title" content="x">`+ogImage(ytAvatar900)))
+	res := resolveOK(t, f, "https://www.youtube.com/@GoogleDevelopers")
+	want := []Candidate{{URL: ytChannelFeed, IconURL: ytAvatarSmall}}
+	if !slices.Equal(res.Candidates, want) {
+		t.Errorf("candidates = %+v; want %+v", res.Candidates, want)
+	}
+	if n := len(f.urls()); n != 1 {
+		t.Errorf("made %d requests; want only the page fetched for the channel ID", n)
+	}
+}
+
+func TestResolve_YouTube_HandlePage_AvatarIsBestEffort(t *testing.T) {
+	long := "https://yt3.googleusercontent.com/" + strings.Repeat("a", MaxIconURLBytes)
+	for _, tc := range []struct {
+		name, markup, want string
+	}{
+		{"before the canonical link", ogImage(ytAvatar900) + canonicalLink(ytChannelID), ytAvatarSmall},
+		{"with itemprop identifier only", identifierMeta(ytChannelID) + ogImage(ytAvatar900), ytAvatarSmall},
+		{"surrounding whitespace", canonicalLink(ytChannelID) + ogImage("\n "+ytAvatar900+"\t"), ytAvatarSmall},
+		{"property name case", canonicalLink(ytChannelID) + `<meta property="OG:Image" content="` + ytAvatar900 + `">`, ytAvatarSmall},
+		{"first og:image wins", canonicalLink(ytChannelID) + ogImage(ytAvatar900) + ogImage("https://yt3.ggpht.com/other=s900"), ytAvatarSmall},
+		{"invalid one skipped", canonicalLink(ytChannelID) + ogImage("javascript:alert(1)") + ogImage(ytAvatar900), ytAvatarSmall},
+		{"missing", canonicalLink(ytChannelID), ""},
+		{"empty", canonicalLink(ytChannelID) + ogImage(""), ""},
+		{"relative", canonicalLink(ytChannelID) + ogImage("/img/avatar.jpg"), ""},
+		{"protocol-relative", canonicalLink(ytChannelID) + ogImage("//yt3.googleusercontent.com/a=s900"), ""},
+		{"not http", canonicalLink(ytChannelID) + ogImage("data:image/png;base64,AAAA"), ""},
+		{"too long", canonicalLink(ytChannelID) + ogImage(long), ""},
+		{"other meta attributes", canonicalLink(ytChannelID) +
+			`<meta name="og:image" content="` + ytAvatar900 + `"><meta itemprop="image" content="` + ytAvatar900 + `">`, ""},
+		{"inside a script", canonicalLink(ytChannelID) + `<script>"` + ogImage(ytAvatar900) + `"</script>`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			f.serve("https://www.youtube.com/@GoogleDevelopers", ctHTML, ytHandlePage(tc.markup))
+			res := resolveOK(t, f, "https://www.youtube.com/@GoogleDevelopers")
+			want := []Candidate{{URL: ytChannelFeed, IconURL: tc.want}}
+			if !slices.Equal(res.Candidates, want) {
+				t.Errorf("candidates = %+v; want %+v", res.Candidates, want)
+			}
+		})
+	}
+}
+
+func TestResolve_YouTube_AvatarOnlyFromAPageServedByYouTube(t *testing.T) {
+	f := newFake()
+	r := f.serve("https://www.youtube.com/@GoogleDevelopers", ctHTML,
+		ytHandlePage(canonicalLink(ytChannelID)+ogImage(ytAvatar900)))
+	r.FinalURL = "https://elsewhere.example/@GoogleDevelopers"
+	res := resolveOK(t, f, "https://www.youtube.com/@GoogleDevelopers")
+	want := []Candidate{{URL: ytChannelFeed}}
+	if !slices.Equal(res.Candidates, want) {
+		t.Errorf("candidates = %+v; want %+v", res.Candidates, want)
+	}
+}
+
+func TestSmallAvatar(t *testing.T) {
+	px := "=s" + strconv.Itoa(ytAvatarPx)
+	for _, tc := range []struct{ in, want string }{
+		{ytAvatar900, ytAvatarSmall},
+		{"https://yt3.googleusercontent.com/ytc/AIdro_x-Y=s900-c-k-c0x00ffffff-no-rj", "https://yt3.googleusercontent.com/ytc/AIdro_x-Y" + px + "-c-k-c0x00ffffff-no-rj"},
+		{"https://yt3.ggpht.com/abc=s240", "https://yt3.ggpht.com/abc" + px},
+		{"https://YT3.GOOGLEUSERCONTENT.COM./abc=c-k-s900-no-rj", "https://YT3.GOOGLEUSERCONTENT.COM./abc=c-k-s" + strconv.Itoa(ytAvatarPx) + "-no-rj"},
+		{"https://yt3.googleusercontent.com/a=b/c=s900?x=1", "https://yt3.googleusercontent.com/a=b/c" + px + "?x=1"},
+		// Left alone: no size option, or not one of Google's image servers.
+		{"https://yt3.googleusercontent.com/abc", "https://yt3.googleusercontent.com/abc"},
+		{"https://yt3.googleusercontent.com/abc=w900-h900", "https://yt3.googleusercontent.com/abc=w900-h900"},
+		{"https://yt3.googleusercontent.com/abc=s-sx", "https://yt3.googleusercontent.com/abc=s-sx"},
+		{"https://img.example/abc=s900-c", "https://img.example/abc=s900-c"},
+		{"https://googleusercontent.com.evil.example/abc=s900", "https://googleusercontent.com.evil.example/abc=s900"},
+	} {
+		u, err := url.Parse(tc.in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		smallAvatar(u)
+		if got := u.String(); got != tc.want {
+			t.Errorf("smallAvatar(%s) = %s; want %s", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestResolve_YouTube_HandlePageAfterConsentRedirects(t *testing.T) {
 	// From the EU the page is served after redirects adding query flags.
 	f := newFake()
-	r := f.serve("https://www.youtube.com/@GoogleDevelopers", ctHTML, ytHandlePage(canonicalLink(ytChannelID)))
+	r := f.serve("https://www.youtube.com/@GoogleDevelopers", ctHTML, ytHandlePage(canonicalLink(ytChannelID)+ogImage(ytAvatar900)))
 	r.FinalURL = "https://www.youtube.com/@GoogleDevelopers?cbrd=1&ucbcb=1"
 	res := resolveOK(t, f, "https://www.youtube.com/@GoogleDevelopers")
-	if got := candidateURLs(res); !slices.Equal(got, []string{ytChannelFeed}) {
-		t.Errorf("candidates = %v", got)
+	want := []Candidate{{URL: ytChannelFeed, IconURL: ytAvatarSmall}}
+	if !slices.Equal(res.Candidates, want) {
+		t.Errorf("candidates = %+v; want %+v", res.Candidates, want)
 	}
 }
 
@@ -286,9 +388,12 @@ func TestResolve_YouTube_RealHandlePage(t *testing.T) {
 		t.Skipf("real page sample not available: %v", err)
 	}
 	pageURL, _ := url.Parse("https://www.youtube.com/@GoogleDevelopers?cbrd=1&ucbcb=1")
-	id, ok := channelIDFromHTML(body, pageURL)
+	id, avatar, ok := channelFromHTML(body, pageURL)
 	if !ok || id != ytChannelID {
-		t.Fatalf("channelIDFromHTML = %q, %v; want %q", id, ok, ytChannelID)
+		t.Fatalf("channelFromHTML = %q, %v; want %q", id, ok, ytChannelID)
+	}
+	if px := "=s" + strconv.Itoa(ytAvatarPx) + "-"; !strings.HasPrefix(avatar, "https://") || !strings.Contains(avatar, px) {
+		t.Errorf("avatar = %q; want an https URL asking for %s", avatar, px)
 	}
 	// Each source on its own must also yield the channel's ID.
 	for _, tc := range []struct {

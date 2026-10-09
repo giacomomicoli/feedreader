@@ -66,6 +66,7 @@
   <input type="hidden" name="kind" value="{{.Preview.Kind}}">
   <input type="hidden" name="entries" value="{{.Preview.EntryCount}}">
   <input type="hidden" name="site_url" value="{{.Preview.SiteURL}}">
+  {{with .Preview.IconURL}}<input type="hidden" name="icon_url" value="{{.}}">{{end}}
   <div class="preview">
     <p class="preview-kind">{{.Preview.KindLabel}}</p>
     <p class="preview-url">{{.Preview.FeedURL}}</p>

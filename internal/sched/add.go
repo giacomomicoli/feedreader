@@ -104,6 +104,16 @@ func (s *Scheduler) addFetch(ctx context.Context, r fetch.Request) (*fetch.Resul
 	return s.fetcher.Fetch(ctx, r)
 }
 
+// httpURL returns raw, trimmed, when it is an absolute http(s) URL, else "".
+func httpURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	return raw
+}
+
 // subscriptionTitle picks the stored title: the user's (trimmed), else the
 // feed's own, else the host of its URL, else the URL itself.
 func subscriptionTitle(userTitle string, fd *fetched) string {

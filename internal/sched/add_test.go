@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -172,6 +173,91 @@ func TestPreview_YouTubeFeedIsKindYouTube(t *testing.T) {
 	e := feedEntries(t, st, feed.ID)["yt:video:vid00000001"]
 	if e.URL != "https://www.youtube.com/watch?v=vid00000001" || e.ThumbnailURL != "https://i1.ytimg.com/vi/vid00000001/hqdefault.jpg" {
 		t.Errorf("video entry = url %q thumbnail %q", e.URL, e.ThumbnailURL)
+	}
+}
+
+// TestSubscribe_ChannelAvatarFoundByTheResolverIsStoredAndKept wires the
+// real resolver over ResolveFetcher, as the app does: the avatar comes from
+// the channel page fetched for the channel ID, with no request of its own,
+// and polls of the feed (which has no icon) keep it.
+func TestSubscribe_ChannelAvatarFoundByTheResolverIsStoredAndKept(t *testing.T) {
+	const (
+		channelID = "UCtestchannel00000000000"
+		handle    = "https://www.youtube.com/@testchannel"
+		ytURL     = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channelID
+	)
+	body, err := os.ReadFile("testdata/youtube.xml")
+	mustNoErr(t, err)
+	page := []byte(`<!DOCTYPE html><html><head><title>Test Channel</title></head><body>
+<link rel="canonical" href="https://www.youtube.com/channel/` + channelID + `">
+<meta property="og:image" content="https://yt3.googleusercontent.com/synthetic-avatar=s900-c-k-c0x00ffffff-no-rj">
+</body></html>`)
+	st := openStore(t)
+	clock := newClock(t0)
+	fetcher := routeFetcher(map[string]*fetch.Result{
+		handle: {StatusCode: 200, Body: page, ContentType: "text/html; charset=utf-8", FinalURL: handle},
+		ytURL:  ok(ytURL, body),
+	})
+	s := newClockedScheduler(t, st, fetcher, clock)
+
+	res, err := resolve.New(s.ResolveFetcher()).Resolve(t.Context(), handle)
+	mustNoErr(t, err)
+	c := res.Candidates[0]
+	if c.URL != ytURL || !strings.HasPrefix(c.IconURL, "https://yt3.googleusercontent.com/synthetic-avatar=") {
+		t.Fatalf("candidate = %+v", c)
+	}
+	_, err = s.Preview(t.Context(), c.URL)
+	mustNoErr(t, err)
+	feed, err := s.Subscribe(t.Context(), Subscription{FeedURL: c.URL, IconURL: c.IconURL})
+	mustNoErr(t, err)
+	if feed.IconURL != c.IconURL {
+		t.Errorf("stored icon = %q; want the avatar %q", feed.IconURL, c.IconURL)
+	}
+	if n := fetcher.CallCount(); n != 2 {
+		t.Errorf("fetches = %d; want 2 (channel page, feed)", n)
+	}
+
+	clock.Advance(config.DefaultPollInterval)
+	pollOnce(t, s, st, feed.ID)
+	if got := getFeed(t, st, feed.ID); got.IconURL != c.IconURL || got.LastFetchedAt.Equal(feed.LastFetchedAt) {
+		t.Errorf("after a poll: icon %q fetched %s; want the avatar kept by a new fetch", got.IconURL, got.LastFetchedAt)
+	}
+}
+
+func TestSubscribe_IconURLOnlyForAFeedWithoutIconAndOnlyHTTP(t *testing.T) {
+	ytBody, err := os.ReadFile("testdata/youtube.xml")
+	mustNoErr(t, err)
+	const (
+		ytURL  = "https://www.youtube.com/feeds/videos.xml?channel_id=UCtestchannel0000000000"
+		avatar = "https://yt3.googleusercontent.com/synthetic-avatar"
+	)
+	rssBody := atomDoc("Site feed", itemsNewestFirst("e", 1, t0)...) // has <icon>
+	for _, tc := range []struct {
+		name, url string
+		body      []byte
+		icon      string
+		want      string
+	}{
+		{"feed's own icon wins", feedURL, rssBody, avatar, "https://site.example/icon.png"},
+		{"used when the feed has none", ytURL, ytBody, avatar, avatar},
+		{"trimmed", ytURL, ytBody, "  " + avatar + "\n", avatar},
+		{"none", ytURL, ytBody, "", ""},
+		{"javascript", ytURL, ytBody, "javascript:alert(1)", ""},
+		{"data", ytURL, ytBody, "data:image/png;base64,AAAA", ""},
+		{"ftp", ytURL, ytBody, "ftp://files.example/a.png", ""},
+		{"relative", ytURL, ytBody, "/a.png", ""},
+		{"no host", ytURL, ytBody, "https:///a.png", ""},
+		{"unparsable", ytURL, ytBody, "https://[::1/a.png", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := openStore(t)
+			s := newClockedScheduler(t, st, routeFetcher(map[string]*fetch.Result{tc.url: ok(tc.url, tc.body)}), newClock(t0))
+			feed, err := s.Subscribe(t.Context(), Subscription{FeedURL: tc.url, IconURL: tc.icon})
+			mustNoErr(t, err)
+			if feed.IconURL != tc.want {
+				t.Errorf("stored icon = %q; want %q", feed.IconURL, tc.want)
+			}
+		})
 	}
 }
 
