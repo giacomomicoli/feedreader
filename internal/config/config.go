@@ -47,9 +47,15 @@ const (
 	// minutes (Cache-Control: max-age=900) and they only list the latest 15
 	// videos, so polling them more often than blogs stays cheap.
 	DefaultYouTubePollInterval = 1 * time.Hour
-	// MaxBackoff caps failure backoff (interval × 2^error_count). It also caps
-	// server-supplied hints (RSS <ttl>, Cache-Control max-age, Retry-After) so
-	// a misbehaving feed cannot stop itself from ever being polled again.
+	// FirstRetryDelay is how soon a feed is fetched again after a single
+	// failure, or one interval when that is shorter. Servers answer the odd
+	// one-off error (YouTube sometimes returns 404 for a working channel),
+	// so backoff only starts from the second failure in a row.
+	FirstRetryDelay = 15 * time.Minute
+	// MaxBackoff caps failure backoff (interval × 2^(error_count-1) from the
+	// second failure in a row). It also caps server-supplied hints (RSS
+	// <ttl>, Cache-Control max-age, Retry-After) so a misbehaving feed cannot
+	// stop itself from ever being polled again.
 	MaxBackoff = 24 * time.Hour
 	// WarnAfterFailures is the number of consecutive failures after which the
 	// sidebar shows a warning icon on the feed.

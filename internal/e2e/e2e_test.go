@@ -584,9 +584,10 @@ func (sc *scenario) pollMoved(t *testing.T) {
 	}
 }
 
-// pollFailures: failures are counted, the sidebar warns after 3 consecutive
-// ones, cached entries stay visible, the feed is never deleted, and a success
-// clears the warning.
+// pollFailures: failures are counted, the first one is retried soon and the
+// next ones back off, the sidebar warns after 3 consecutive ones, cached
+// entries stay visible, the feed is never deleted, and a success clears the
+// warning.
 func (sc *scenario) pollFailures(t *testing.T) {
 	a, site := sc.a, sc.site
 	warned := func() bool {
@@ -611,10 +612,27 @@ func (sc *scenario) pollFailures(t *testing.T) {
 		})
 	}
 
+	// retryIn is the delay after the n-th failure in a row of a feed at the
+	// default interval: a quick first retry, then interval × 2^(n-1), capped.
+	retryIn := func(n int) time.Duration {
+		if n == 1 {
+			return min(config.DefaultPollInterval, config.FirstRetryDelay)
+		}
+		d := config.DefaultPollInterval
+		for range n - 1 {
+			d = min(2*d, config.MaxBackoff)
+		}
+		return d
+	}
+
 	site.setGone(true)
 	for i := 1; i <= config.WarnAfterFailures; i++ {
 		sc.refresh(t, "feed", sc.blogID)
 		errorCount(i)
+		if f, err := a.st.GetFeed(t.Context(), sc.blogID); err != nil || f.NextFetchAt.Sub(f.LastFetchedAt) != retryIn(i) {
+			t.Errorf("after %d failures: next fetch %s after the last one, %v; want %s",
+				i, f.NextFetchAt.Sub(f.LastFetchedAt), err, retryIn(i))
+		}
 		if got, want := warned(), i >= config.WarnAfterFailures; got != want {
 			t.Errorf("after %d failures: warning shown = %v, want %v", i, got, want)
 		}

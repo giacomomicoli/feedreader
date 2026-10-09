@@ -17,7 +17,7 @@ A small, self-hosted, single-user feed reader for **YouTube channels and blogs**
 - **Scopes**: All, a folder, a single source, Watch later, Read later, Favourites, or a tag — with an Unread/All filter and "Load more" paging.
 - **Quick actions** on every card: mark read/watched, Watch later / Read later, favourite, free-text tags with autocomplete. "Mark all as read" for the current scope.
 - **Folders** (flat), per-source settings (rename, move, custom poll interval, fetch status, unsubscribe).
-- **Polite polling**: every 6 hours by default (YouTube feeds every hour), conditional GET (`ETag` / `Last-Modified`), exponential backoff on errors honouring `Retry-After`, at most 4 background fetches at once. Nothing is fetched until you add your first source.
+- **Polite polling**: every 6 hours by default (YouTube feeds every hour), conditional GET (`ETag` / `Last-Modified`), a quick retry after a one-off error, then exponential backoff honouring `Retry-After`, at most 4 background fetches at once. Nothing is fetched until you add your first source.
 - **Safe content**: all feed HTML is sanitized with an allow-list before it is stored; the UI uses a strict Content-Security-Policy.
 
 Not included (yet): push updates (WebSub), full-text article extraction, embedded video player, search, OPML import/export, multiple users.
@@ -62,7 +62,7 @@ You can edit the title and pick (or create) a folder before confirming. The **5 
 
 **Organizing.** Use the sidebar to switch between All, Watch later (videos), Read later (articles), Favourites, tags and folders. Create folders at the bottom of the sidebar; rename or delete them from the folder's view (deleting a folder keeps its sources). Open **Feed settings** on a source to rename it, move it, change how often it is checked, see when it was last fetched and any error, or unsubscribe (which deletes its entries, including saved ones).
 
-**Refreshing.** Sources are checked automatically: by default every 6 hours, and every hour for YouTube channels and playlists, whose feeds only list the latest 15 videos. **Refresh** checks the current source — or every source — right away. A ⚠ icon next to a source means its last 3 fetches failed; the source settings show the error.
+**Refreshing.** Sources are checked automatically: by default every 6 hours, and every hour for YouTube channels and playlists, whose feeds only list the latest 15 videos. **Refresh** checks the current source — or every source — right away. A failed check is retried after 15 minutes, then less and less often, down to once a day. A ⚠ icon next to a source means its last 3 fetches failed; the source settings show the error.
 
 ## Configuration
 

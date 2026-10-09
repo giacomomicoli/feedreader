@@ -20,9 +20,13 @@ import (
 // t0 is a fixed reference time with whole seconds (the store's precision).
 var t0 = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
-// firstBackoff is the delay after a first failure at the default interval
-// (interval × 2^error_count, capped).
-var firstBackoff = min(2*config.DefaultPollInterval, config.MaxBackoff)
+// firstBackoff is the delay after a first failure at the default interval:
+// a quick retry, at most one interval away.
+var firstBackoff = min(config.DefaultPollInterval, config.FirstRetryDelay)
+
+// secondBackoff is the delay after a second failure in a row at the default
+// interval (interval × 2, capped).
+var secondBackoff = min(2*config.DefaultPollInterval, config.MaxBackoff)
 
 // longHint is a server freshness hint (RSS <ttl>, Cache-Control max-age)
 // longer than the default interval and below the cap, in whole minutes like

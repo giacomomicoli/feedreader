@@ -38,7 +38,9 @@ var errNoResult = errors.New("fetch returned no response")
 //     replace the feed's address for good;
 //   - anything else (HTTP error status, network, size cap, redirect loop,
 //     unparseable or non-feed body): error_count++ and last_error, with the
-//     next poll delayed by failureDelay. Entries are never touched.
+//     next poll delayed by failureDelay: a quick retry after a first
+//     failure, exponential backoff from the second in a row. Entries are
+//     never touched.
 //
 // A fetch cut short by ctx (shutdown) records nothing, and so does the poll
 // of a feed that was unsubscribed while it was being fetched, even when a
@@ -126,14 +128,21 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 }
 
 // recordFailure stores a failed poll: error_count + 1, last_error, and the
-// next poll after the backoff delay (honouring Retry-After).
+// next poll after failureDelay (a quick first retry, then backoff, both
+// honouring Retry-After).
+//
+// A failure that cannot be stored leaves error_count where it was, so the
+// next poll would look like this same failure again (a first one gets the
+// quick retry) for as long as the database stays unwritable. The feed is
+// then held as long as one more failure in a row would delay it.
 func (s *Scheduler) recordFailure(ctx context.Context, f store.Feed, fetchedAt time.Time, base time.Duration, cause error) time.Time {
 	errorCount := f.ErrorCount + 1
 	next := fetchedAt.Add(failureDelay(base, errorCount, retryAfter(cause)))
+	hold := fetchedAt.Add(failureDelay(base, errorCount+1, retryAfter(cause)))
 	msg := failureMessage(cause)
 	s.log.Warn("feed fetch failed", "feed", f.ID, "url", redact(f.URL), "err", msg,
 		"consecutive_failures", errorCount, "next_fetch", next)
-	return s.checkStored(ctx, f, next, s.writeFeed(ctx, f, func(cur store.Feed) error {
+	return s.checkStored(ctx, f, hold, s.writeFeed(ctx, f, func(cur store.Feed) error {
 		return s.st.RecordFetchError(ctx, f.ID, msg, fetchedAt, keepRequested(f, cur, next))
 	}))
 }
@@ -173,9 +182,9 @@ func keepRequested(f, cur store.Feed, next time.Time) time.Time {
 }
 
 // checkStored interprets the error of the store call that recorded a poll's
-// outcome, returning the time the feed must be held until when the new
-// schedule (next) was not saved.
-func (s *Scheduler) checkStored(ctx context.Context, f store.Feed, next time.Time, err error) time.Time {
+// outcome, returning hold, the time the feed must be held until, when the
+// new schedule was not saved.
+func (s *Scheduler) checkStored(ctx context.Context, f store.Feed, hold time.Time, err error) time.Time {
 	switch {
 	case err == nil, ctx.Err() != nil:
 		return time.Time{}
@@ -183,8 +192,8 @@ func (s *Scheduler) checkStored(ctx context.Context, f store.Feed, next time.Tim
 		s.log.Debug("feed removed while it was being fetched", "feed", f.ID)
 		return time.Time{}
 	}
-	s.log.Error("could not store fetch outcome", "feed", f.ID, "err", err, "hold_until", next)
-	return next
+	s.log.Error("could not store fetch outcome", "feed", f.ID, "err", err, "hold_until", hold)
+	return hold
 }
 
 // followPermanentRedirect stores the feed's new URL after a 301/308 and
