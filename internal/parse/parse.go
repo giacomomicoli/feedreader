@@ -218,3 +218,14 @@ func Sanitize(html, base string) string {
 func Excerpt(html string, n int) string {
 	return excerpt(html, n)
 }
+
+// Text returns at most n runes of visible text from html, like Excerpt, but
+// keeps its line breaks: a <br>, a newline inside <pre> or the edge of a
+// block such as <div>, <li> or <tr> starts a new line, and a paragraph, list
+// or heading is set off by a blank line (never more than one in a row).
+// Other whitespace is collapsed, and "…" appended when truncated. The result
+// is plain text and must still be HTML-escaped when rendered (html/template
+// does this).
+func Text(html string, n int) string {
+	return textLines(html, n)
+}

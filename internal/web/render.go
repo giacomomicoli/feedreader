@@ -16,7 +16,7 @@ import (
 // Pages are full documents: the "layout" template with a page-specific
 // "main". Each page template set is a clone of the base set, built once at
 // startup (html/template sets cannot be cloned after first execution).
-var pageNames = []string{"home", "add", "feed", "confirm", "error"}
+var pageNames = []string{"home", "entry", "add", "feed", "confirm", "error"}
 
 // renderer holds the parsed templates.
 type renderer struct {

@@ -1,0 +1,32 @@
+{{/*
+  One entry's full summary (GET /entries/{id}). For htmx it is the content
+  of the layout's #entry-dialog: static/app.js opens the dialog once htmx
+  has swapped it in, and the Close button's method="dialog" form closes it
+  without a request. Without htmx it is the main pane of a page of its own.
+
+  The summary is plain text with line breaks, which app.css shows
+  (white-space: pre-line): nothing may stand between it and its tags.
+*/}}
+{{define "page-entry"}}
+<div class="page page-narrow">
+  <section class="panel">{{template "entry-detail" .}}</section>
+</div>
+{{end}}
+
+{{define "entry-detail"}}
+<article class="entry">
+  <header class="entry-head">
+    {{if .Dialog}}<h2 class="entry-title" id="entry-dialog-title">{{.Title}}</h2>{{else}}<h1 class="page-title">{{.Title}}</h1>{{end}}
+    <p class="entry-meta">
+      <a class="card-source" href="{{.FeedHref}}">{{template "avatar" .Avatar}}<span>{{.FeedTitle}}</span></a>
+      <time datetime="{{.ISOTime}}" title="{{.AbsTime}}">{{.RelTime}}</time>
+    </p>
+  </header>
+  {{if .Summary}}<div class="entry-summary" role="region" aria-label="Summary" tabindex="0"{{if .Dialog}} autofocus{{end}}>{{.Summary}}</div>
+  {{else}}<p class="entry-summary entry-none">This entry has no summary.</p>{{end}}
+  <div class="actions entry-actions">
+    {{if .Href}}<a class="btn btn-primary" href="{{.Href}}" target="_blank" rel="noopener noreferrer">{{.OpenLabel}}</a>{{end}}
+    {{if .Dialog}}<form method="dialog"><button class="btn" type="submit">Close</button></form>{{end}}
+  </div>
+</article>
+{{end}}

@@ -122,6 +122,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /favicon.ico", s.static.favicon)
 	mux.HandleFunc("GET /{$}", s.handleHome)
 	mux.HandleFunc("GET /entries", s.handleEntries)
+	mux.HandleFunc("GET /entries/{id}", s.handleEntry)
 	mux.HandleFunc("POST /entries/{id}/{action}", s.handleEntryAction)
 	mux.HandleFunc("POST /entries/{id}/tags", s.handleAddTag)
 	mux.HandleFunc("POST /entries/{id}/tags/{tag}/remove", s.handleRemoveTag)

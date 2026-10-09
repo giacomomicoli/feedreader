@@ -111,7 +111,7 @@
         {{if .IsFavourite}}<span class="flag flag-fav" title="Favourite">{{template "icon" "star"}}<span class="sr-only">Favourite</span></span>{{end}}
       </p>
       {{if .Tags}}<ul class="card-tags">{{range .Tags}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>{{end}}
-      {{if .Excerpt}}<details class="card-summary"><summary>Summary</summary><p>{{.Excerpt}}</p></details>{{end}}
+      {{if .Excerpt}}<a class="card-summary" href="/entries/{{.ID}}" hx-get="/entries/{{.ID}}" hx-target="#entry-dialog" hx-swap="innerHTML" aria-haspopup="dialog">Summary<span class="sr-only"> of {{.Title}}</span></a>{{end}}
     </div>
     {{template "card-menu" .}}
   </div>

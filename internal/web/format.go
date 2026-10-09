@@ -251,6 +251,14 @@ func laterLabel(k store.Kind) string {
 	return "Read later"
 }
 
+// openLabel names the link to an entry's original.
+func openLabel(k store.Kind) string {
+	if k == store.KindYouTube {
+		return "Open video"
+	}
+	return "Open article"
+}
+
 func kindLabel(k store.Kind) string {
 	if k == store.KindYouTube {
 		return "YouTube"

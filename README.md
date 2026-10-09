@@ -58,7 +58,7 @@ YouTube channels show their avatar, read from the channel's page on YouTube. For
 
 You can edit the title and pick (or create) a folder before confirming. The **5 newest** entries start as unread; older ones are kept as already read, and you can page back through them with **Load more**. A feed only contains its most recent items (YouTube: the last 15 videos), so feedreader cannot show anything older than what the feed offered when you subscribed.
 
-**Reading.** Click a thumbnail or title to open the original (video on youtube.com, article on its site) in a new tab. Opening something never marks it read — use the card's **⋮** menu: *Mark read / watched*, *Read later / Watch later*, *Add to favourites*, *Add tag*. Hover or expand **Summary** for a short excerpt.
+**Reading.** Click a thumbnail or title to open the original (video on youtube.com, article on its site) in a new tab. Opening something never marks it read — use the card's **⋮** menu: *Mark read / watched*, *Read later / Watch later*, *Add to favourites*, *Add tag*. Hover over a title for a short excerpt of its summary, or click **Summary** to read up to 5,000 characters of it — a video's full description fits — in a dialog that keeps its paragraphs and line breaks; Esc or **Close** dismisses it, and Ctrl/Cmd-click opens it as a page in a new tab.
 
 **Organizing.** Use the sidebar to switch between All, Watch later (videos), Read later (articles), Favourites, tags and folders. Create folders at the bottom of the sidebar; rename or delete them from the folder's view (deleting a folder keeps its sources). Open **Feed settings** on a source to rename it, move it, change how often it is checked, see when it was last fetched and any error, or unsubscribe (which deletes its entries, including saved ones).
 
@@ -115,7 +115,7 @@ internal/parse/     RSS/Atom/JSON Feed parsing (gofeed) and HTML sanitizing (blu
 internal/sched/     polling scheduler and the add-source pipeline
 internal/web/       HTTP handlers, htmx partials, security headers
 internal/e2e/       end-to-end tests of the whole stack
-web/                embedded templates and static files (htmx, CSS, a small error-handling script)
+web/                embedded templates and static files (htmx, CSS, a small script for error notices, the summary dialog and broken icons)
 migrations/         embedded SQL schema migrations
 deploy/             example systemd unit and reverse-proxy config
 ```

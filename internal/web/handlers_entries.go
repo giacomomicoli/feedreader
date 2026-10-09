@@ -189,6 +189,29 @@ func (s *server) handleEntries(w http.ResponseWriter, r *http.Request) {
 	s.renderFragment(w, r, http.StatusOK, "grid-items", g, false)
 }
 
+// handleEntry shows one entry's full summary: the content of the layout's
+// entry dialog for htmx (the card's Summary link), a page of its own
+// otherwise, so the link also works without JavaScript. It is read-only:
+// opening a summary never marks the entry read.
+func (s *server) handleEntry(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	e, err := s.store.GetEntry(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("get entry %d: %w", id, err))
+		return
+	}
+	v := newEntryView(e, s.now(), isHTMX(r))
+	if v.Dialog {
+		s.renderFragment(w, r, http.StatusOK, "entry-detail", v, false)
+		return
+	}
+	s.renderPage(w, r, http.StatusOK, "entry", v.Title, store.Scope{}, v)
+}
+
 // handleEntryAction applies one quick action and returns the re-rendered
 // card plus out-of-band sidebar counts.
 func (s *server) handleEntryAction(w http.ResponseWriter, r *http.Request) {
