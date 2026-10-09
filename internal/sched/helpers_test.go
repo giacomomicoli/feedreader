@@ -3,8 +3,11 @@ package sched
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -262,6 +265,84 @@ func testLogger(t *testing.T) *slog.Logger {
 		}
 	})
 	return slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+// logRecord is one line of the scheduler's log, decoded with the fields of
+// the poll log lines; the others are ignored. New is nil on a line without
+// "new", which a plain int would not tell from new=0.
+type logRecord struct {
+	Level     slog.Level    `json:"level"`
+	Msg       string        `json:"msg"`
+	Feed      int64         `json:"feed"`
+	URL       string        `json:"url"`
+	Status    int           `json:"status"`
+	New       *int          `json:"new"`
+	Took      time.Duration `json:"took"`
+	NextFetch time.Time     `json:"next_fetch"`
+}
+
+// logCapture is the scheduler log recorded by captureLog.
+type logCapture struct {
+	t   *testing.T
+	buf *syncBuffer
+}
+
+// captureLog records what s logs from now on, debug level included, as JSON
+// lines, and prints it when the test fails.
+func captureLog(t *testing.T, s *Scheduler) *logCapture {
+	t.Helper()
+	buf := &syncBuffer{}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("captured scheduler log:\n%s", buf.String())
+		}
+	})
+	s.log = slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return &logCapture{t: t, buf: buf}
+}
+
+// String returns the raw log.
+func (c *logCapture) String() string { return c.buf.String() }
+
+// records decodes the lines logged so far at level or above.
+func (c *logCapture) records(level slog.Level) []logRecord {
+	c.t.Helper()
+	var out []logRecord
+	dec := json.NewDecoder(strings.NewReader(c.buf.String()))
+	for {
+		var r logRecord
+		err := dec.Decode(&r)
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		if err != nil {
+			c.t.Fatalf("decoding the scheduler log: %v", err)
+		}
+		if r.Level >= level {
+			out = append(out, r)
+		}
+	}
+}
+
+// withMsg returns the lines logged so far, at any level, with message msg.
+func (c *logCapture) withMsg(msg string) []logRecord {
+	c.t.Helper()
+	var out []logRecord
+	for _, r := range c.records(slog.LevelDebug) {
+		if r.Msg == msg {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// messages returns the messages of recs, in order.
+func messages(recs []logRecord) []string {
+	out := make([]string, len(recs))
+	for i, r := range recs {
+		out[i] = r.Msg
+	}
+	return out
 }
 
 // newTestScheduler returns a scheduler with the default config and workers
