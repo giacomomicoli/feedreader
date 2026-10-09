@@ -73,21 +73,25 @@ func TestIntervalHints_TTLAndMaxAgeAreLowerBoundsCappedAtMaxBackoff(t *testing.T
 	}
 }
 
-func TestBaseInterval_PerFeedOverrideElseGlobalDefault(t *testing.T) {
+func TestBaseInterval_PerFeedOverrideElseDefaultOfItsKind(t *testing.T) {
 	s := New(nil, nil, config.Default(), nil)
 	tests := []struct {
 		name        string
+		kind        store.Kind
 		intervalSec int
 		want        time.Duration
 	}{
-		{"global default", 0, config.DefaultPollInterval},
-		{"per-feed override", 3600, hour},
-		{"never below the minimum", 1, config.MinPollInterval},
+		{"global default", store.KindRSS, 0, config.DefaultPollInterval},
+		{"YouTube default", store.KindYouTube, 0, config.DefaultYouTubePollInterval},
+		{"per-feed override", store.KindRSS, 3600, hour},
+		{"per-feed override of a YouTube feed", store.KindYouTube, int(config.DefaultPollInterval / time.Second), config.DefaultPollInterval},
+		{"never below the minimum", store.KindRSS, 1, config.MinPollInterval},
+		{"YouTube never below the minimum", store.KindYouTube, 1, config.MinPollInterval},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := s.baseInterval(store.Feed{IntervalSec: tt.intervalSec}); got != tt.want {
-				t.Errorf("baseInterval(%d s) = %s, want %s", tt.intervalSec, got, tt.want)
+			if got := s.baseInterval(store.Feed{Kind: tt.kind, IntervalSec: tt.intervalSec}); got != tt.want {
+				t.Errorf("baseInterval(%s, %d s) = %s, want %s", tt.kind, tt.intervalSec, got, tt.want)
 			}
 		})
 	}
@@ -97,16 +101,54 @@ func TestBaseInterval_PerFeedOverrideElseGlobalDefault(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.PollInterval = 2 * hour
-	if got := New(nil, nil, cfg, nil).baseInterval(store.Feed{}); got != 2*hour {
-		t.Errorf("configured poll_interval: got %s, want 2h", got)
+	cfg.PollIntervalYouTube = 3 * config.MinPollInterval
+	s = New(nil, nil, cfg, nil)
+	if got := s.baseInterval(store.Feed{Kind: store.KindRSS}); got != cfg.PollInterval {
+		t.Errorf("configured poll_interval: got %s, want %s", got, cfg.PollInterval)
 	}
-	cfg.PollInterval, cfg.FetchWorkers = 0, 0
+	if got := s.baseInterval(store.Feed{Kind: store.KindYouTube}); got != cfg.PollIntervalYouTube {
+		t.Errorf("configured YouTube poll interval: got %s, want %s", got, cfg.PollIntervalYouTube)
+	}
+	cfg.PollInterval, cfg.PollIntervalYouTube, cfg.FetchWorkers = 0, 0, 0
 	s = New(nil, nil, cfg, nil)
 	if got := s.baseInterval(store.Feed{}); got != config.DefaultPollInterval {
 		t.Errorf("zero poll_interval: got %s, want the default", got)
 	}
+	if got := s.baseInterval(store.Feed{Kind: store.KindYouTube}); got != config.DefaultYouTubePollInterval {
+		t.Errorf("zero YouTube poll interval: got %s, want the default", got)
+	}
+	if s.cfg.PollInterval != config.DefaultPollInterval || s.cfg.PollIntervalYouTube != config.DefaultYouTubePollInterval {
+		t.Errorf("New kept zero intervals: %s, %s", s.cfg.PollInterval, s.cfg.PollIntervalYouTube)
+	}
 	if s.cfg.FetchWorkers != config.DefaultFetchWorkers {
 		t.Errorf("zero fetch workers: got %d, want the default", s.cfg.FetchWorkers)
+	}
+}
+
+func TestDefaultInterval_ByKindWithFallbacks(t *testing.T) {
+	custom := config.Default()
+	custom.PollInterval = 2 * config.DefaultPollInterval
+	custom.PollIntervalYouTube = 2 * config.DefaultYouTubePollInterval
+	tests := []struct {
+		name string
+		cfg  config.Config
+		kind store.Kind
+		want time.Duration
+	}{
+		{"rss default", config.Default(), store.KindRSS, config.DefaultPollInterval},
+		{"YouTube default", config.Default(), store.KindYouTube, config.DefaultYouTubePollInterval},
+		{"configured rss", custom, store.KindRSS, custom.PollInterval},
+		{"configured YouTube", custom, store.KindYouTube, custom.PollIntervalYouTube},
+		{"unknown kind uses the global interval", custom, store.Kind(""), custom.PollInterval},
+		{"unset rss falls back", config.Config{}, store.KindRSS, config.DefaultPollInterval},
+		{"unset YouTube falls back", config.Config{}, store.KindYouTube, config.DefaultYouTubePollInterval},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DefaultInterval(tt.cfg, tt.kind); got != tt.want {
+				t.Errorf("DefaultInterval(%q) = %s, want %s", tt.kind, got, tt.want)
+			}
+		})
 	}
 }
 

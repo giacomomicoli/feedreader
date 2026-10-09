@@ -58,6 +58,29 @@ func TestPoll_304SendsStoredValidatorsResetsErrorCountAndReschedules(t *testing.
 	}
 }
 
+func TestPoll_YouTubeFeedIsPolledAtTheYouTubeInterval(t *testing.T) {
+	const ytURL = "https://www.youtube.com/feeds/videos.xml?channel_id=UCtestchannel0000000000"
+	tests := []struct {
+		name string
+		res  *fetch.Result
+	}{
+		{"304", notModified(ytURL)},
+		{"200", ok(ytURL, atomDoc("Channel", itemsNewestFirst("v", 1, t0)...))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openStore(t)
+			f := addFeedOfKind(t, st, store.KindYouTube, ytURL, t0)
+			clock := newClock(t0.Add(time.Hour))
+			s := newClockedScheduler(t, st, staticFetcher(tt.res, nil), clock)
+			pollOnce(t, s, st, f.ID)
+			if got := getFeed(t, st, f.ID); got.ErrorCount != 0 || !got.NextFetchAt.Equal(clock.Now().Add(config.DefaultYouTubePollInterval)) {
+				t.Errorf("next fetch in %s (errors %d), want %s", got.NextFetchAt.Sub(clock.Now()), got.ErrorCount, config.DefaultYouTubePollInterval)
+			}
+		})
+	}
+}
+
 func TestPoll_200InsertsNewEntriesUnreadAndKeepsReadStateOfExistingOnes(t *testing.T) {
 	st := openStore(t)
 	ctx := t.Context()

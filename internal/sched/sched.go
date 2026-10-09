@@ -108,16 +108,16 @@ type Scheduler struct {
 // New creates a scheduler. It makes no HTTP request until Run is called and
 // at least one feed exists.
 //
-// A non-positive cfg.FetchWorkers or cfg.PollInterval falls back to
-// config.DefaultFetchWorkers or config.DefaultPollInterval; a nil log
+// A non-positive cfg.FetchWorkers, cfg.PollInterval or
+// cfg.PollIntervalYouTube falls back to config.DefaultFetchWorkers,
+// config.DefaultPollInterval or config.DefaultYouTubePollInterval; a nil log
 // discards output.
 func New(st store.Store, f Fetcher, cfg config.Config, log *slog.Logger) *Scheduler {
 	if cfg.FetchWorkers < 1 {
 		cfg.FetchWorkers = config.DefaultFetchWorkers
 	}
-	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = config.DefaultPollInterval
-	}
+	cfg.PollInterval = DefaultInterval(cfg, store.KindRSS)
+	cfg.PollIntervalYouTube = DefaultInterval(cfg, store.KindYouTube)
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
@@ -148,7 +148,8 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 	defer s.running.Store(false)
 
-	s.log.Info("scheduler started", "workers", s.cfg.FetchWorkers, "interval", s.cfg.PollInterval)
+	s.log.Info("scheduler started", "workers", s.cfg.FetchWorkers, "interval", s.cfg.PollInterval,
+		"youtube_interval", s.cfg.PollIntervalYouTube)
 	if err := s.stagger(ctx); err != nil && ctx.Err() == nil {
 		s.log.Warn("could not stagger overdue feeds", "err", err)
 	}
@@ -274,8 +275,8 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 // icon is the feed's own, else sub.IconURL, else for a YouTube channel feed
 // the avatar on the channel's page, looked up with one more request once
 // the subscription is stored (see lookupAvatar). The first poll is
-// scheduled one interval (raised by the feed's <ttl> and Cache-Control
-// max-age hints) after now.
+// scheduled one interval of the feed's kind (raised by the feed's <ttl> and
+// Cache-Control max-age hints) after now.
 func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed, error) {
 	feedURL := strings.TrimSpace(sub.FeedURL)
 	if feedURL == "" {
@@ -304,7 +305,7 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 		ETag:          fd.etag,
 		LastModified:  fd.lastModified,
 		FetchedAt:     fd.fetchedAt,
-		NextFetchAt:   now.Add(withHints(s.baseInterval(store.Feed{}), fd.doc.TTL, fd.maxAge)),
+		NextFetchAt:   now.Add(withHints(s.baseInterval(store.Feed{Kind: fd.kind}), fd.doc.TTL, fd.maxAge)),
 		TTLSec:        ttlSec(fd.doc.TTL),
 	}
 	entries := newEntries(fd.doc.Entries, fd.fetchedAt)

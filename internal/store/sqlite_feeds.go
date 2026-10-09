@@ -227,8 +227,9 @@ func (s *SQLite) MoveFeed(ctx context.Context, id, folderID int64) error {
 	return nil
 }
 
-// SetFeedInterval sets the per-feed poll interval in seconds; 0 = global
-// default. Values below config.MinPollInterval are rejected with ErrInvalid.
+// SetFeedInterval sets the per-feed poll interval in seconds; 0 = the
+// default interval of the feed's kind. Values below config.MinPollInterval
+// are rejected with ErrInvalid.
 func (s *SQLite) SetFeedInterval(ctx context.Context, id int64, sec int) error {
 	if sec < 0 || (sec > 0 && time.Duration(sec)*time.Second < config.MinPollInterval) {
 		return fmt.Errorf("store: set interval of feed %d: %ds is below the minimum %s: %w",

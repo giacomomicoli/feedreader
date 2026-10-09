@@ -258,10 +258,13 @@ func (s *Scheduler) stagger(ctx context.Context) error {
 }
 
 // rescheduleFuture makes due at now every feed whose next fetch lies further
-// ahead than poll and Subscribe ever schedule one: max(baseInterval,
-// config.MaxBackoff) from now. Such a time was stored while the wall clock
-// was ahead (bad RTC, NTP step, VM restore); trusted as it is, the feed would
-// not be polled again until the clock caught up.
+// ahead than poll and Subscribe ever schedule one: the longest of its
+// baseInterval, both kinds' default intervals and config.MaxBackoff from
+// now. (YouTube feeds were scheduled with the general default before they
+// had their own, so a schedule within the longer default is kept.) A time
+// further ahead was stored while the wall clock was ahead (bad RTC, NTP
+// step, VM restore); trusted as it is, the feed would not be polled again
+// until the clock caught up.
 func (s *Scheduler) rescheduleFuture(ctx context.Context, now time.Time) error {
 	feeds, err := s.st.ListFeeds(ctx)
 	if err != nil {
@@ -269,7 +272,8 @@ func (s *Scheduler) rescheduleFuture(ctx context.Context, now time.Time) error {
 	}
 	n := 0
 	for _, f := range feeds {
-		if !f.NextFetchAt.After(now.Add(max(s.baseInterval(f), config.MaxBackoff))) {
+		limit := max(s.baseInterval(f), s.cfg.PollInterval, s.cfg.PollIntervalYouTube, config.MaxBackoff)
+		if !f.NextFetchAt.After(now.Add(limit)) {
 			continue
 		}
 		err := s.st.SetNextFetch(ctx, f.ID, now)

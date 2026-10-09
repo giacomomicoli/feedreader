@@ -24,7 +24,7 @@ var (
 )
 
 // Kind is a feed kind. It only affects YouTube channel-ID resolution at add
-// time and rendering (labels, thumbnails).
+// time, the default poll interval and rendering (labels, thumbnails).
 type Kind string
 
 const (
@@ -56,7 +56,7 @@ type Feed struct {
 	LastModified  string
 	LastFetchedAt time.Time // zero = never
 	NextFetchAt   time.Time
-	IntervalSec   int // 0 = use the global poll interval
+	IntervalSec   int // 0 = use the default interval of the feed's kind
 	ErrorCount    int // consecutive failures; reset on success or 304
 	LastError     string
 	// TTLSec is the RSS <ttl> of the last parsed document, in seconds
@@ -257,7 +257,8 @@ type Store interface {
 	RenameFeed(ctx context.Context, id int64, title string) error
 	// MoveFeed sets the feed's folder; folderID 0 = uncategorized.
 	MoveFeed(ctx context.Context, id, folderID int64) error
-	// SetFeedInterval sets the per-feed poll interval; 0 = global default.
+	// SetFeedInterval sets the per-feed poll interval; 0 = the default of the
+	// feed's kind.
 	SetFeedInterval(ctx context.Context, id int64, sec int) error
 	// DeleteFeed removes the feed, all its entries (including later and
 	// favourite ones) and their entry_tags rows.

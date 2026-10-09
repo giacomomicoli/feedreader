@@ -281,13 +281,19 @@ func newClockedScheduler(t *testing.T, st store.Store, f Fetcher, c *testClock) 
 // with entries derived from items and the given next fetch time.
 func addFeed(t *testing.T, st store.Store, url string, next time.Time, items ...item) store.Feed {
 	t.Helper()
+	return addFeedOfKind(t, st, store.KindRSS, url, next, items...)
+}
+
+// addFeedOfKind is addFeed for a feed of the given kind.
+func addFeedOfKind(t *testing.T, st store.Store, kind store.Kind, url string, next time.Time, items ...item) store.Feed {
+	t.Helper()
 	entries := make([]store.NewEntry, len(items))
 	for i, it := range items {
 		entries[i] = store.NewEntry{GUID: it.id, URL: "https://site.example/" + it.id, Title: it.title,
 			SummaryHTML: "Summary of " + it.id, PublishedAt: it.published, UpdatedAt: it.updated}
 	}
 	f, err := st.CreateFeed(t.Context(), store.NewFeed{
-		Kind:         store.KindRSS,
+		Kind:         kind,
 		URL:          url,
 		Title:        "Feed " + url,
 		ETag:         `"v1"`,

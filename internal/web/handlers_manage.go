@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
+	"github.com/giacomomicoli/feedreader/internal/sched"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -40,13 +41,6 @@ type feedSettingsView struct {
 	ErrorCount      int
 	LastError       string
 	Warn            bool
-}
-
-func (s *server) defaultInterval() time.Duration {
-	if s.cfg.PollInterval > 0 {
-		return s.cfg.PollInterval
-	}
-	return config.DefaultPollInterval
 }
 
 // feedForPath loads the feed named by the {id} path value.
@@ -86,7 +80,7 @@ func (s *server) handleFeedSettings(w http.ResponseWriter, r *http.Request) {
 		SiteURL:         f.SiteURL,
 		SiteLink:        httpURL(f.SiteURL),
 		Folders:         folderOptions(folders, f.FolderID),
-		DefaultInterval: formatInterval(s.defaultInterval()),
+		DefaultInterval: formatInterval(sched.DefaultInterval(s.cfg, f.Kind)),
 		MinInterval:     formatInterval(config.MinPollInterval),
 		LastFetch:       absTime(f.LastFetchedAt),
 		NextFetch:       absTime(f.NextFetchAt),
@@ -201,7 +195,7 @@ func (s *server) handleFeedInterval(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseInterval reads a poll interval typed as minutes ("90") or as a Go
-// duration ("2h", "1h30m"). Empty means "use the global default" (0).
+// duration ("2h", "1h30m"). Empty means "use the default of the feed's kind" (0).
 func parseInterval(raw string) (time.Duration, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

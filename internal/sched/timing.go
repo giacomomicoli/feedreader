@@ -11,11 +11,31 @@ import (
 // maxIntervalSec keeps a per-feed interval from overflowing time.Duration.
 const maxIntervalSec = math.MaxInt64 / int64(time.Second)
 
+// DefaultInterval is the poll interval of a feed of the given kind that has
+// no interval of its own: cfg.PollIntervalYouTube for YouTube feeds,
+// cfg.PollInterval for all others. A non-positive setting falls back to
+// config.DefaultYouTubePollInterval or config.DefaultPollInterval.
+//
+// It is the one definition of a kind's default, used by the scheduler and
+// shown on the feed settings page.
+func DefaultInterval(cfg config.Config, kind store.Kind) time.Duration {
+	if kind == store.KindYouTube {
+		if cfg.PollIntervalYouTube > 0 {
+			return cfg.PollIntervalYouTube
+		}
+		return config.DefaultYouTubePollInterval
+	}
+	if cfg.PollInterval > 0 {
+		return cfg.PollInterval
+	}
+	return config.DefaultPollInterval
+}
+
 // baseInterval is the feed's poll interval before server hints: its own
-// override when set, else the global poll interval, never below
-// config.MinPollInterval.
+// override when set, else the default for its kind (DefaultInterval), never
+// below config.MinPollInterval.
 func (s *Scheduler) baseInterval(f store.Feed) time.Duration {
-	d := s.cfg.PollInterval
+	d := DefaultInterval(s.cfg, f.Kind)
 	if f.IntervalSec > 0 {
 		d = time.Duration(min(int64(f.IntervalSec), maxIntervalSec)) * time.Second
 	}
