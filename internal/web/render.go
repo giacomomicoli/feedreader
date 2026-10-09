@@ -147,10 +147,15 @@ func (s *server) renderFragment(w http.ResponseWriter, r *http.Request, status i
 }
 
 // clearsNotice reports whether a successful response with the named
-// fragment clears #notice. The notice fragment writes #notice itself, and tag
-// autocomplete answers keystrokes, not actions.
+// fragment clears #notice. The notice fragment and the start and end of a
+// grid refresh write #notice themselves, a pending refresh check leaves it
+// alone, and tag autocomplete answers keystrokes, not actions.
 func clearsNotice(name string) bool {
-	return name != "notice" && name != "tag-options"
+	switch name {
+	case "notice", "refresh-started", "refresh-poll", "refresh-done", "refresh-quiet", "tag-options":
+		return false
+	}
+	return true
 }
 
 // redirect sends the browser to target: HX-Redirect for htmx requests (a

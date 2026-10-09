@@ -319,6 +319,17 @@ func (s *server) handleSuggestTags(w http.ResponseWriter, r *http.Request) {
 	s.renderFragment(w, r, http.StatusOK, "tag-options", tags, false)
 }
 
+// badWatermark answers a form whose up_to watermark is missing or invalid.
+const badWatermark = "Missing or invalid page watermark. Reload the page and try again."
+
+// parseUpTo reads a page's up_to watermark: the largest entry id when the
+// page was rendered (see buildScopeView), 0 when there was none. ok is false
+// unless v is a non-negative integer.
+func parseUpTo(v string) (upTo int64, ok bool) {
+	upTo, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	return upTo, err == nil && upTo >= 0
+}
+
 // handleMarkAllRead marks the scope read up to the page's up_to watermark
 // (the largest entry id when the page was rendered, see buildScopeView), so
 // entries stored after the user loaded the page stay unread, and returns the
@@ -334,9 +345,9 @@ func (s *server) handleMarkAllRead(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	upTo, err := strconv.ParseInt(strings.TrimSpace(r.PostForm.Get("up_to")), 10, 64)
-	if err != nil || upTo < 0 {
-		s.fail(w, r, badRequest("Missing or invalid page watermark. Reload the page and try again."))
+	upTo, ok := parseUpTo(r.PostForm.Get("up_to"))
+	if !ok {
+		s.fail(w, r, badRequest(badWatermark))
 		return
 	}
 	n, err := s.store.MarkScopeReadUpTo(ctx, m.scope, upTo, s.now())
@@ -355,36 +366,4 @@ func (s *server) handleMarkAllRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderFragment(w, r, http.StatusOK, "scope-view", v, true)
-}
-
-// handleRefresh forces a fetch of one feed (feed scope) or of all feeds.
-func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	if err := parseForm(r); err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	ctx := r.Context()
-	sc, filter, err := parseScope(r.PostForm)
-	if err != nil {
-		s.fail(w, r, badRequest("Unknown scope."))
-		return
-	}
-	if sc.Kind == store.ScopeFeed {
-		if _, err := s.store.GetFeed(ctx, sc.ID); err != nil {
-			s.fail(w, r, fmt.Errorf("get feed %d: %w", sc.ID, err))
-			return
-		}
-		err = s.sched.Refresh(ctx, sc.ID)
-	} else {
-		err = s.sched.RefreshAll(ctx)
-	}
-	if err != nil {
-		s.fail(w, r, fmt.Errorf("refresh: %w", err))
-		return
-	}
-	if !isHTMX(r) {
-		http.Redirect(w, r, safeBack(r.PostForm.Get("back"), scopeHref(sc, filter)), http.StatusSeeOther)
-		return
-	}
-	s.renderFragment(w, r, http.StatusOK, "notice", noticeView{Text: "Refresh started — reload in a moment."}, true)
 }
