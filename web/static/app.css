@@ -235,6 +235,11 @@ summary::-webkit-details-marker { display: none; }
 /* Light backing so dark favicons stay visible on the colored placeholder. */
 .avatar img { width: 100%; height: 100%; object-fit: cover; background: #fff; }
 
+/* A feed icon hides the initials that follow it; static/app.js removes an
+   icon that fails to load, which shows them. */
+.avatar img + .avatar-initials,
+.thumb-icon + .thumb-initials { display: none; }
+
 .ph-0 { background: #3d5a80; }
 .ph-1 { background: #2f6f62; }
 .ph-2 { background: #85507a; }
