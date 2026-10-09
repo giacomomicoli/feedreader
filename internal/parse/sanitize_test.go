@@ -6,8 +6,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	xhtml "golang.org/x/net/html"
+
+	"github.com/giacomomicoli/feedreader/internal/config"
 )
 
 // safeElements is the complete set of elements the policy may emit.
@@ -339,6 +342,27 @@ func TestParse_HostileSummary_BoundedSummaryAndThumbnail(t *testing.T) {
 	}
 	checkEqual(t, "ThumbnailURL", e.ThumbnailURL, "https://example.com/first.png")
 	checkEqual(t, "excerpt", Excerpt(e.SummaryHTML, 5), "x x x…")
+}
+
+// TestSanitize_FallbackKeepsWhatTheEntryDialogShows: a summary whose HTML
+// cannot be rendered within the limits is stored as its visible text, and
+// keeps as much of it as the entry dialog shows, line breaks included.
+func TestSanitize_FallbackKeepsWhatTheEntryDialogShows(t *testing.T) {
+	const paragraphs = 2000
+	in := `<p>` + formattingRun() + strings.Repeat("<p>0123456789", paragraphs)
+	out := Sanitize(in, "https://example.com/feed")
+	if strings.Contains(out, "<p>") {
+		t.Fatalf("rendered as HTML, not through the fallback: %.120q", out)
+	}
+	got := Text(out, config.SummaryFullMaxChars)
+	if n := utf8.RuneCountInString(got); n < config.SummaryFullMaxChars || !strings.HasSuffix(got, ellipsis) {
+		t.Errorf("fallback keeps %d runes of text, want the %d the entry dialog shows", n, config.SummaryFullMaxChars)
+	}
+	if !strings.HasPrefix(got, "0123456789\n\n0123456789") {
+		t.Errorf("fallback lost the paragraph breaks: %.60q", got)
+	}
+	checkEqual(t, "excerpt", Excerpt(out, len("0123456789 0123456789")), "0123456789 0123456789…")
+	assertSafeHTML(t, out)
 }
 
 func TestSanitize_LongInputIsCut(t *testing.T) {

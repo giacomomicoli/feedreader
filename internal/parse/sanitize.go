@@ -122,9 +122,10 @@ func sanitizeHTML(s string, base *url.URL) string {
 
 // fallbackHTML renders a fragment that cannot be rendered within the limits
 // as what the UI uses of a summary: its first usable image, then its
-// visible text (fallbackTextRunes at most), escaped. It is always safe.
+// visible text (fallbackTextRunes at most) with its line breaks, escaped.
+// It is always safe.
 func fallbackHTML(s string, base *url.URL) string {
-	out := textToHTML(excerpt(s, fallbackTextRunes))
+	out := textToHTML(textLines(s, fallbackTextRunes))
 	var img string
 	firstImage(s, func(src string) bool {
 		img = absHTTP(base, src)

@@ -247,8 +247,8 @@ func TestCardOpensOriginalInNewTabWithoutMarkingRead(t *testing.T) {
 	body := e.get("/").Body.String()
 	wantContains(t, body,
 		`href="`+ev.URL+`" target="_blank" rel="noopener noreferrer"`,
-		`title="Summary of blog entry 0"`, // summary only as tooltip / expandable area
-		`<details class="card-summary">`,
+		`title="Summary of blog entry 0"`, // summary only as tooltip / Summary dialog
+		`<a class="card-summary" href="/entries/`+idStr(ev.ID)+`"`,
 	)
 	// The link itself carries no htmx action: opening never marks read.
 	if strings.Contains(body, `hx-post="`+ev.URL) || strings.Contains(body, `hx-get="`+ev.URL) {

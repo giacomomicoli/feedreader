@@ -10,6 +10,10 @@
 
   static/app.js is not deferred: it only adds listeners on the document, and
   the one for broken feed icons must be in place before any image can fail.
+
+  #entry-dialog is the one dialog the cards' Summary links load an entry
+  into (hx-target). It lives outside #main, so no swap of the scope view or
+  of a card can remove it.
 */}}
 {{define "layout"}}<!doctype html>
 <html lang="en">
@@ -33,6 +37,7 @@
 {{template "main" .Main}}
 </main>
 </div>
+<dialog id="entry-dialog" class="entry-dialog" aria-labelledby="entry-dialog-title"></dialog>
 </body>
 </html>
 {{end}}

@@ -39,7 +39,8 @@ const (
 
 	// maxFieldBytes bounds the raw bytes of one summary or content field
 	// that are rendered; the rest is cut at a UTF-8 boundary. The UI only
-	// uses a SummaryMaxChars excerpt and the first image.
+	// uses the first image and at most config.SummaryFullMaxChars of
+	// visible text, which takes far fewer bytes even with markup.
 	maxFieldBytes = 64 << 10
 	// maxHTMLTreeNodes bounds the nodes the HTML tree builder may create for
 	// one field (an upper bound computed before parsing; see
@@ -52,8 +53,8 @@ const (
 	// replaced by the field's text (see fallbackHTML).
 	renderSlackBytes = 4 << 10
 	// fallbackTextRunes is how much visible text a field keeps when its
-	// HTML cannot be rendered within the limits.
-	fallbackTextRunes = 2 * config.SummaryMaxChars
+	// HTML cannot be rendered within the limits: all the UI can show.
+	fallbackTextRunes = config.SummaryFullMaxChars
 
 	// maxTitleRunes bounds feed and entry titles and author names. It
 	// equals the web layer's limit on user-entered names, so a feed title

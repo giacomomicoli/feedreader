@@ -66,6 +66,7 @@ func TestEndToEnd(t *testing.T) {
 		{"AddSource_Preview_FetchesFeedOnceAndPrefillsTitle", sc.preview},
 		{"AddSource_Confirm_SubscribesIntoNewFolderAndRedirectsToFeed", sc.confirm},
 		{"InitialAdd_5NewestUnread_RestStoredRead", sc.initialUnread},
+		{"EntryDialog_FullSummaryAsPlainText_ChangesNothing", sc.entryDialog},
 		{"LoadMore_RevealsOlderStoredEntriesInBlocksOf5", sc.loadMore},
 		{"QuickActions_ReturnCardPlusOOBSidebarCounts", sc.quickActions},
 		{"Tags_AddMatchCaseInsensitivelyAutocompleteRemove", sc.tags},
@@ -292,6 +293,38 @@ func (sc *scenario) initialUnread(t *testing.T) {
 		t.Errorf("feed script content reached the page")
 	}
 	expectBadges(t, p, false, sc.blogBadges(blogUnreadAfterAdd))
+}
+
+// entryDialog: a card's Summary link loads the entry's whole summary, as the
+// visible text of the sanitized feed HTML, into the dialog of the layout
+// (a page of its own without htmx). Opening it changes nothing.
+func (sc *scenario) entryDialog(t *testing.T) {
+	a := sc.a
+	p := a.visit(t, feedScope(sc.blogID)).expect(t, http.StatusOK)
+	if byID(p.doc, "entry-dialog") == nil {
+		t.Fatal("the page has no entry dialog")
+	}
+	c := p.cards(t)[0]
+	if want := fmt.Sprintf("/entries/%d", c.id); c.summary != want {
+		t.Fatalf("Summary link of %s = %q, want %q", c.title, c.summary, want)
+	}
+	const want = "Summary of post 8 with a relative link."
+	for name, d := range map[string]*page{
+		"dialog": a.hxGet(t, c.summary).expect(t, http.StatusOK),
+		"page":   a.visit(t, c.summary).expect(t, http.StatusOK),
+	} {
+		s := findFirst(d.doc, elemClass("div", "entry-summary"))
+		if s == nil || s.FirstChild == nil || s.FirstChild.Data != want || s.FirstChild.NextSibling != nil {
+			t.Errorf("%s: summary is not the plain text %q:\n%s", name, want, d.body)
+		}
+		if strings.Contains(d.body, "xss-") {
+			t.Errorf("%s: feed script content reached the page", name)
+		}
+		if isPage := strings.Contains(d.body, "<aside"); isPage != (name == "page") {
+			t.Errorf("%s: full page = %v", name, isPage)
+		}
+	}
+	expectBadges(t, a.visit(t, feedScope(sc.blogID)), false, sc.blogBadges(blogUnreadAfterAdd))
 }
 
 // loadMore: single-feed scope pages through stored entries in blocks of 5;

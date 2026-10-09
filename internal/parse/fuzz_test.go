@@ -4,9 +4,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
+
+	"github.com/giacomomicoli/feedreader/internal/config"
 )
 
 // addFixtureSeeds adds every testdata file to the fuzz corpus.
@@ -88,14 +92,17 @@ func FuzzSanitize(f *testing.F) {
 	})
 }
 
+// maxFuzzRunes caps the rune count FuzzExcerpt and FuzzText ask for: far
+// above config.SummaryFullMaxChars, the most the UI asks for, and low
+// enough that a fuzzed count cannot make one run slow.
+const maxFuzzRunes = 1 << 16
+
 // FuzzExcerpt checks Excerpt's length and encoding guarantees.
 func FuzzExcerpt(f *testing.F) {
 	f.Add("<p>héllo <b>wörld</b></p>", 5)
 	f.Add("\xff\xfe broken", 3)
 	f.Fuzz(func(t *testing.T, in string, n int) {
-		if n > 1<<16 {
-			n = 1 << 16
-		}
+		n = min(n, maxFuzzRunes)
 		got := Excerpt(in, n)
 		if n <= 0 && got != "" {
 			t.Errorf("Excerpt(_, %d) = %q, want empty", n, got)
@@ -133,4 +140,43 @@ func checkUTC(t *testing.T, v time.Time) {
 	if !v.IsZero() && v.Location() != time.UTC {
 		t.Errorf("time %v is not UTC", v)
 	}
+}
+
+// FuzzText checks Text's length, encoding and layout guarantees, and that it
+// keeps exactly the words Excerpt extracts.
+func FuzzText(f *testing.F) {
+	f.Add("<p>héllo<br><b>wörld</b></p><ul><li>a<li>b</ul>", 5)
+	f.Add("<pre>a\n\n\nb</pre>\xff<br><br><br>c", 3)
+	f.Add("<table><tr><td>a<td>b<tr><td>c</table><script><br></script>", 100)
+	addFixtureSeeds(f, func(b []byte) { f.Add(string(b), config.SummaryFullMaxChars) })
+	f.Fuzz(func(t *testing.T, in string, n int) {
+		n = min(n, maxFuzzRunes)
+		got := Text(in, n)
+		if n <= 0 && got != "" {
+			t.Errorf("Text(_, %d) = %q, want empty", n, got)
+		}
+		if c := utf8.RuneCountInString(got); n > 0 && c > n+1 {
+			t.Errorf("Text(_, %d) has %d runes", n, c)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("Text = %q, invalid UTF-8", got)
+		}
+		for _, bad := range []string{"\n\n\n", "  ", " \n", "\n "} {
+			if strings.Contains(got, bad) {
+				t.Errorf("Text = %q contains %q", got, bad)
+			}
+		}
+		if strings.TrimSpace(got) != got {
+			t.Errorf("Text = %q has leading or trailing space", got)
+		}
+		for _, r := range got {
+			if r != ' ' && r != '\n' && (unicode.IsSpace(r) || unicode.IsControl(r)) {
+				t.Errorf("Text = %q contains %U", got, r)
+			}
+		}
+		all := len(in) + 1
+		if words, want := strings.Join(strings.Fields(Text(in, all)), " "), Excerpt(in, all); words != want {
+			t.Errorf("Text words %q, Excerpt %q", words, want)
+		}
+	})
 }

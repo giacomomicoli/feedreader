@@ -84,8 +84,13 @@ const (
 
 // Content handling.
 const (
-	// SummaryMaxChars is the visible-text length summaries are truncated to.
+	// SummaryMaxChars is the visible-text length summaries are truncated to
+	// in the card grid (the title's tooltip).
 	SummaryMaxChars = 300
+	// SummaryFullMaxChars bounds the visible text, line breaks included, of
+	// the full summary in the entry dialog: YouTube's limit for a video
+	// description, far more than an article's summary needs.
+	SummaryFullMaxChars = 5000
 )
 
 // Config is the runtime configuration.

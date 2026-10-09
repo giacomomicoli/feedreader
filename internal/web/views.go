@@ -52,6 +52,9 @@ type tagChip struct {
 	RemovePath string
 }
 
+// untitled stands in for an empty entry title.
+const untitled = "(untitled)"
+
 // cardView is one entry in the card grid.
 type cardView struct {
 	ID          int64
@@ -100,7 +103,7 @@ func newCard(e store.EntryView, now time.Time, back string) cardView {
 		Back:        back,
 	}
 	if c.Title == "" {
-		c.Title = "(untitled)"
+		c.Title = untitled
 	}
 	c.Thumb = httpURL(e.ThumbnailURL)
 	if c.Thumb == "" {
@@ -136,6 +139,45 @@ func newCard(e store.EntryView, now time.Time, back string) cardView {
 		})
 	}
 	return c
+}
+
+// entryView is one entry's title, source and full summary (GET
+// /entries/{id}): the content of the layout's entry dialog, or the main pane
+// of a page of its own when the request does not come from htmx.
+type entryView struct {
+	ID        int64
+	Title     string
+	Href      string // http(s) URL of the original, or ""
+	OpenLabel string
+	Avatar    avatarView
+	FeedTitle string
+	FeedHref  string
+	RelTime   string
+	AbsTime   string
+	ISOTime   string
+	Summary   string // plain text with its line breaks (parse.Text), or ""
+	Dialog    bool   // rendered into the entry dialog rather than as a page
+}
+
+func newEntryView(e store.EntryView, now time.Time, dialog bool) entryView {
+	v := entryView{
+		ID:        e.ID,
+		Title:     e.Title,
+		Href:      httpURL(e.URL),
+		OpenLabel: openLabel(e.FeedKind),
+		Avatar:    newAvatar(e.FeedID, e.FeedTitle, e.FeedIconURL),
+		FeedTitle: e.FeedTitle,
+		FeedHref:  feedHref(e.FeedID, ""),
+		RelTime:   relTime(e.PublishedAt, now),
+		AbsTime:   absTime(e.PublishedAt),
+		ISOTime:   e.PublishedAt.UTC().Format(time.RFC3339),
+		Summary:   parse.Text(e.SummaryHTML, config.SummaryFullMaxChars),
+		Dialog:    dialog,
+	}
+	if v.Title == "" {
+		v.Title = untitled
+	}
+	return v
 }
 
 // moreView is the "Load more" button: Href is the full-page fallback,

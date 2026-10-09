@@ -19,6 +19,7 @@
   --danger: #b42318;
   --danger-soft: #fdecea;
   --shadow: 0 12px 32px rgba(17, 24, 39, 0.16), 0 2px 6px rgba(17, 24, 39, 0.08);
+  --backdrop: rgba(17, 24, 39, 0.5);
 
   --font: "Seravek", "Gill Sans Nova", Ubuntu, Calibri, "DejaVu Sans", source-sans-pro, sans-serif;
   --radius: 12px;
@@ -43,6 +44,7 @@
     --danger: #ff7b72;
     --danger-soft: #3a1d1c;
     --shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --backdrop: rgba(0, 0, 0, 0.65);
   }
 }
 
@@ -537,9 +539,9 @@ label { font-size: 14px; font-weight: 600; }
   text-decoration: none;
 }
 
-.card-summary summary { width: fit-content; color: var(--ink-3); font-size: 12px; }
-.card-summary summary:hover { color: var(--ink); }
-.card-summary p { margin-top: 4px; color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+/* Opens the entry dialog, or the entry's own page without JavaScript. */
+.card-summary { justify-self: start; color: var(--ink-3); font-size: 12px; text-decoration: none; }
+.card-summary:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 
 /* Overflow menu */
 
@@ -663,6 +665,77 @@ label { font-size: 14px; font-weight: 600; }
   color: var(--accent-ink);
 }
 
+/* ---------- Entry summary: the dialog, or a page without JavaScript ---------- */
+
+.entry { display: grid; gap: 14px; min-width: 0; }
+.entry-head { display: grid; gap: 6px; min-width: 0; }
+.entry-title { font-size: 19px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+
+.entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* The summary is plain text: pre-line shows its line and paragraph breaks
+   and still wraps long lines. */
+.entry-summary {
+  max-width: 72ch;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.entry-none { color: var(--ink-3); }
+.entry-actions { margin-top: 0; }
+
+/* The one dialog of layout.html: htmx fills it, static/app.js opens it as a
+   modal. The title and the buttons stay in view while the text scrolls; on
+   a viewport too short even for that, the whole dialog scrolls. */
+.entry-dialog {
+  width: min(680px, 100% - 32px);
+  max-width: none;
+  max-height: min(760px, 100% - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+}
+
+.entry-dialog[open] { display: flex; flex-direction: column; }
+
+/* Browsers that do not pass custom properties on to ::backdrop use the
+   fallback. */
+.entry-dialog::backdrop { background: var(--backdrop, rgba(17, 24, 39, 0.5)); }
+
+.entry-dialog .entry { flex: 1 1 auto; display: flex; flex-direction: column; gap: 0; min-height: 0; }
+.entry-dialog .entry-head { padding: 20px 22px 14px; border-bottom: 1px solid var(--line); }
+
+.entry-dialog .entry-summary {
+  flex: 1 1 auto;
+  min-height: 6em;
+  max-width: none;
+  padding: 16px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.entry-dialog .entry-summary:focus-visible { outline-offset: -2px; }
+
+.entry-dialog .entry-actions {
+  justify-content: flex-end;
+  padding: 12px 22px 16px;
+  border-top: 1px solid var(--line);
+}
+
 /* ---------- Secondary pages ---------- */
 
 .page-narrow { max-width: 760px; }
@@ -751,6 +824,10 @@ label { font-size: 14px; font-weight: 600; }
   .popover-body { left: 0; right: auto; top: calc(100% + 8px); width: min(320px, 100%); }
   .facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .facts dd { margin-bottom: 8px; }
+
+  .entry-dialog .entry-head,
+  .entry-dialog .entry-summary,
+  .entry-dialog .entry-actions { padding-left: 16px; padding-right: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

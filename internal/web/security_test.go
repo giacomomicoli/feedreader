@@ -24,8 +24,11 @@ import (
 func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 	e := newTestEnv(t)
 	f := e.addFeed(store.KindRSS, "a", "A", 0, makeEntries("a", 1))
+	entry := "/entries/" + idStr(e.entries(f.ID)[0].ID)
 	responses := map[string]*httptest.ResponseRecorder{
 		"home":       e.get("/"),
+		"entry page": e.get(entry),
+		"entry":      e.get(entry, htmx),
 		"static":     e.get("/static/app.css"),
 		"not found":  e.get("/missing"),
 		"fragment":   e.post("/entries/"+idStr(e.entries(f.ID)[0].ID)+"/read", nil, htmx),
@@ -118,6 +121,8 @@ func TestEntryXSSIsEscapedAndJavascriptURLsNeutralized(t *testing.T) {
 	}{
 		{"home", e.get("/"), true, true},
 		{"card fragment", e.post("/entries/"+idStr(ev.ID)+"/read", nil, htmx), true, true},
+		{"entry dialog", e.get("/entries/"+idStr(ev.ID), htmx), true, true},
+		{"entry page", e.get("/entries/" + idStr(ev.ID)), true, true},
 		{"settings", e.get("/feeds/" + idStr(f.ID)), true, false},
 	}
 	for _, c := range cases {
@@ -145,15 +150,17 @@ func TestPagesHaveNoInlineScriptsStylesOrEval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	entry := "/entries/" + idStr(e.entries(f.ID)[0].ID)
 	pages := []string{
 		"/", "/?filter=all", "/?scope=folder&id=" + idStr(fo.ID), "/?scope=tag&id=" + idStr(tag.ID),
 		"/?scope=feed&id=" + idStr(f.ID), "/add", "/feeds/" + idStr(f.ID),
-		"/feeds/" + idStr(f.ID) + "/unsubscribe", "/folders/" + idStr(fo.ID) + "/delete", "/missing",
+		"/feeds/" + idStr(f.ID) + "/unsubscribe", "/folders/" + idStr(fo.ID) + "/delete", "/missing", entry,
 	}
 	for _, p := range pages {
 		w := e.get(p)
 		checkCSPMarkup(t, p, w.Body.String())
 	}
+	checkCSPMarkup(t, "entry dialog", e.get(entry, htmx).Body.String())
 	checkCSPMarkup(t, "empty", newTestEnv(t).get("/").Body.String())
 }
 
@@ -322,6 +329,7 @@ func TestDNSRebindingIsBlockedByHostAllowlist(t *testing.T) {
 	for name, w := range map[string]*httptest.ResponseRecorder{
 		"GET /":           e.get("/", rebound...),
 		"GET settings":    e.get("/feeds/"+idStr(f.ID), rebound...),
+		"GET entry":       e.get("/entries/"+idStr(e.entries(f.ID)[0].ID), append(rebound, htmx)...),
 		"POST unsub":      e.post("/feeds/"+idStr(f.ID)+"/unsubscribe", nil, rebound...),
 		"POST htmx read":  e.post(entryPath, nil, append(rebound, htmx)...),
 		"GET static file": e.get("/static/app.css", rebound...),
