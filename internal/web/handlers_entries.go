@@ -20,10 +20,12 @@ type scopeMeta struct {
 	scope    store.Scope
 	title    string
 	subtitle string
+	// noSources is set for a digest that has no folder, feed or tag yet.
+	noSources bool
 }
 
-// loadScope validates that the scope's folder, feed or tag exists and
-// returns its title. Unknown ids yield store.ErrNotFound.
+// loadScope validates that the scope's folder, feed, tag or digest exists
+// and returns its title. Unknown ids yield store.ErrNotFound.
 func (s *server) loadScope(ctx context.Context, sc store.Scope) (scopeMeta, error) {
 	m := scopeMeta{scope: sc}
 	switch sc.Kind {
@@ -53,6 +55,20 @@ func (s *server) loadScope(ctx context.Context, sc store.Scope) (scopeMeta, erro
 			return m, fmt.Errorf("get tag %d: %w", sc.ID, err)
 		}
 		m.title, m.subtitle = t.Name, "Tag"
+	case store.ScopeDigest:
+		d, err := s.store.GetDigest(ctx, sc.ID)
+		if err != nil {
+			return m, fmt.Errorf("get digest %d: %w", sc.ID, err)
+		}
+		src, err := s.store.DigestSources(ctx, sc.ID)
+		if err != nil {
+			return m, fmt.Errorf("sources of digest %d: %w", sc.ID, err)
+		}
+		m.title, m.subtitle = d.Name, "Digest"
+		if d.HasIngest {
+			m.subtitle = fmt.Sprintf("Digest, fetched daily at %s (%s)", clockTime(d.IngestMinute), s.zoneName())
+		}
+		m.noSources = len(src.FolderIDs)+len(src.FeedIDs)+len(src.TagIDs) == 0
 	default:
 		return m, badRequest("Unknown scope.")
 	}
@@ -118,9 +134,13 @@ func (s *server) buildScopeView(ctx context.Context, m scopeMeta, filter string,
 		IsFeed:     sc.Kind == store.ScopeFeed,
 		IsFolder:   sc.Kind == store.ScopeFolder,
 		IsTag:      sc.Kind == store.ScopeTag,
+		IsDigest:   sc.Kind == store.ScopeDigest,
 	}
-	if v.IsFeed {
+	switch {
+	case v.IsFeed:
 		v.SettingsHref = "/feeds/" + strconv.FormatInt(sc.ID, 10)
+	case v.IsDigest:
+		v.SettingsHref = digestHref(sc.ID)
 	}
 	feeds, err := s.store.ListFeeds(ctx)
 	if err != nil {
@@ -139,6 +159,10 @@ func (s *server) buildScopeView(ctx context.Context, m scopeMeta, filter string,
 		return v, fmt.Errorf("max entry id: %w", err)
 	}
 	v.Grid, err = s.loadGrid(ctx, sc, filter, after, v.Href)
+	if err == nil && m.noSources && len(v.Grid.Cards) == 0 {
+		v.Grid.EmptyText, v.Grid.EmptyLink = "This digest has no sources yet.", ""
+		v.Grid.EmptyHint = "Use Digest settings to pick its folders, sources and tags."
+	}
 	return v, err
 }
 

@@ -160,6 +160,12 @@ func (s *server) handleFeedMove(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, fmt.Errorf("move feed %d: %w", f.ID, err))
 		return
 	}
+	// A digest with an ingestion time may name the new folder. The move is
+	// stored either way, so a failure here is not fatal: the next poll
+	// schedules the digest time.
+	if err := s.sched.ScheduleIngest(r.Context(), []int64{f.ID}); err != nil {
+		s.log.Warn("could not schedule digest ingestion after moving a feed", "feed", f.ID, "err", err)
+	}
 	s.redirect(w, r, settingsHref(f.ID))
 }
 
@@ -373,14 +379,36 @@ func (s *server) handleFolderDeleteConfirm(w http.ResponseWriter, r *http.Reques
 	default:
 		line = fmt.Sprintf("Its %d feeds stay subscribed and move to the list of feeds without a folder.", n)
 	}
+	digests, err := s.store.DigestsNamingFolder(r.Context(), f.ID)
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("digests of folder %d: %w", f.ID, err))
+		return
+	}
 	v := confirmView{
 		Heading:    fmt.Sprintf("Delete folder “%s”?", f.Name),
-		Lines:      []string{line},
+		Lines:      withDigestsLine([]string{line}, digests),
 		Action:     "/folders/" + strconv.FormatInt(f.ID, 10) + "/delete",
 		Button:     "Delete folder",
 		CancelHref: folderHref(f.ID),
 	}
 	s.renderConfirm(w, r, v, store.Scope{Kind: store.ScopeFolder, ID: f.ID})
+}
+
+// withDigestsLine appends to the lines of a folder or tag delete
+// confirmation the digests that the deletion removes it from, if any.
+func withDigestsLine(lines []string, digests []store.Digest) []string {
+	names := make([]string, len(digests))
+	for i, d := range digests {
+		names[i] = "“" + d.Name + "”"
+	}
+	switch len(names) {
+	case 0:
+		return lines
+	case 1:
+		return append(lines, "It is also removed from the digest "+names[0]+".")
+	}
+	last := len(names) - 1
+	return append(lines, "It is also removed from the digests "+strings.Join(names[:last], ", ")+" and "+names[last]+".")
 }
 
 // handleFolderDelete deletes a folder; its feeds become uncategorized.
@@ -429,9 +457,15 @@ func (s *server) handleTagDeleteConfirm(w http.ResponseWriter, r *http.Request) 
 			t.Count = x.Count
 		}
 	}
+	digests, err := s.store.DigestsNamingTag(r.Context(), t.ID)
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("digests of tag %d: %w", t.ID, err))
+		return
+	}
 	v := confirmView{
-		Heading:    fmt.Sprintf("Delete tag “%s”?", t.Name),
-		Lines:      []string{fmt.Sprintf("It is removed from %s. The entries themselves are kept.", pluralEntries(t.Count))},
+		Heading: fmt.Sprintf("Delete tag “%s”?", t.Name),
+		Lines: withDigestsLine([]string{fmt.Sprintf("It is removed from %s. The entries themselves are kept.",
+			pluralEntries(t.Count))}, digests),
 		Action:     "/tags/" + strconv.FormatInt(t.ID, 10) + "/delete",
 		Button:     "Delete tag",
 		CancelHref: scopeHref(store.Scope{Kind: store.ScopeTag, ID: t.ID}, ""),

@@ -41,6 +41,39 @@ type Folder struct {
 	Position int
 }
 
+// MinutesPerDay is the number of minutes in a day. A digest's ingestion
+// time is a minute of the day, 0 to MinutesPerDay-1.
+const MinutesPerDay = int(24 * time.Hour / time.Minute)
+
+// MaxDigestSources bounds how many folders, feeds and tags one digest names,
+// all together (duplicates collapse first). A digest that needs more can
+// name the folders that hold them.
+const MaxDigestSources = 1000
+
+// Digest is a custom view over several sources: the entries of the feeds it
+// names, of the feeds in the folders it names, and the entries carrying any
+// of the tags it names, each entry once. Names are unique
+// case-insensitively, like folder names. Ids are never reused.
+type Digest struct {
+	ID   int64
+	Name string
+	// IngestMinute is the minute of the day (0 to MinutesPerDay-1), in the
+	// server's local time zone, at which the digest's feeds (those it names
+	// and those in its folders) are fetched every day on top of their
+	// regular schedule. It is only meaningful when HasIngest is set.
+	IngestMinute int
+	HasIngest    bool
+	Position     int
+	CreatedAt    time.Time
+}
+
+// DigestSources are what a digest is made of, each list sorted by id.
+type DigestSources struct {
+	FolderIDs []int64
+	FeedIDs   []int64
+	TagIDs    []int64
+}
+
 // Feed is a subscription plus its fetch state.
 type Feed struct {
 	ID            int64
@@ -165,10 +198,11 @@ const (
 	ScopeReadLater  ScopeKind = "readlater"  // is_later on rss feeds
 	ScopeFavourites ScopeKind = "favourites" // is_favourite, both kinds
 	ScopeTag        ScopeKind = "tag"
+	ScopeDigest     ScopeKind = "digest" // see Digest
 )
 
-// Scope is a scope kind plus the folder, feed or tag id it refers to (0 for
-// the others).
+// Scope is a scope kind plus the folder, feed, tag or digest id it refers to
+// (0 for the others).
 type Scope struct {
 	Kind ScopeKind
 	ID   int64
@@ -211,6 +245,9 @@ type UnreadCounts struct {
 	All      int
 	ByFeed   map[int64]int // feed id → unread entries (absent = 0)
 	ByFolder map[int64]int // folder id → sum over its feeds (absent = 0)
+	// ByDigest maps a digest id to its unread entries, each counted once
+	// however many of its sources it belongs to (absent = 0).
+	ByDigest map[int64]int
 }
 
 // FeedEntryStats is shown in the unsubscribe confirmation dialog.
@@ -275,6 +312,11 @@ type Store interface {
 	NextFetchAfter(ctx context.Context, t time.Time) (time.Time, bool, error)
 	SetNextFetch(ctx context.Context, id int64, at time.Time) error
 	SetAllNextFetch(ctx context.Context, at time.Time) error
+	// AdvanceNextFetch moves the feed's next fetch to at only when at is
+	// earlier than the stored one, in one statement, so it never undoes an
+	// earlier fetch requested meanwhile (a Refresh). moved reports whether
+	// it did; a feed that is due now (no next fetch stored) stays due.
+	AdvanceNextFetch(ctx context.Context, id int64, at time.Time) (moved bool, err error)
 	// RecordFetchSuccess upserts entries and updates fetch state in one
 	// transaction: error_count = 0, last_error = NULL, last_fetched_at,
 	// next_fetch_at, etag, last_modified, ttl_sec, and non-empty metadata fields.
@@ -331,6 +373,50 @@ type Store interface {
 	RemoveEntryTag(ctx context.Context, entryID, tagID int64) error
 	// DeleteTag removes the tag and its entry_tags rows; entries are kept.
 	DeleteTag(ctx context.Context, id int64) error
+
+	// --- Digests ---
+
+	// ListDigests returns all digests ordered by position, then name
+	// (case-insensitive).
+	ListDigests(ctx context.Context) ([]Digest, error)
+	GetDigest(ctx context.Context, id int64) (Digest, error)
+	// CreateDigest appends a digest without sources or ingestion time.
+	// Returns ErrConflict if the name is taken (case-insensitive, as
+	// strings.EqualFold) and ErrInvalid if it is empty.
+	CreateDigest(ctx context.Context, name string) (Digest, error)
+	// RenameDigest returns ErrConflict if the name is taken, ErrInvalid if it
+	// is empty.
+	RenameDigest(ctx context.Context, id int64, name string) error
+	// SetDigestIngest sets the digest's daily ingestion time to minute (0 to
+	// MinutesPerDay-1, else ErrInvalid) when on is true, and clears it when
+	// on is false (minute is then ignored).
+	SetDigestIngest(ctx context.Context, id int64, minute int, on bool) error
+	// DeleteDigest removes the digest and its memberships; feeds, folders,
+	// tags and entries are kept.
+	DeleteDigest(ctx context.Context, id int64) error
+	// DigestSources returns the folders, feeds and tags the digest names.
+	DigestSources(ctx context.Context, id int64) (DigestSources, error)
+	// SetDigestSources replaces all of the digest's sources atomically.
+	// Duplicate ids collapse. offered is the SourcesFingerprint of the
+	// folders, feeds and tags the settings form offered: when they have
+	// changed since (ids are reused), it returns ErrConflict. Returns
+	// ErrInvalid for a non-positive id or more than MaxDigestSources
+	// sources, and ErrNotFound when the digest or any of the sources does
+	// not exist. Nothing is changed on any error.
+	SetDigestSources(ctx context.Context, id int64, src DigestSources, offered string) error
+	// DigestsNamingFolder and DigestsNamingTag return the digests that name
+	// the folder or the tag, ordered as ListDigests: those that deleting it
+	// removes it from.
+	DigestsNamingFolder(ctx context.Context, id int64) ([]Digest, error)
+	DigestsNamingTag(ctx context.Context, id int64) ([]Digest, error)
+	// DigestFeedIDs returns, sorted, the feeds a digest's ingestion time
+	// fetches: those it names and those in the folders it names.
+	DigestFeedIDs(ctx context.Context, id int64) ([]int64, error)
+	// IngestMinutes returns, sorted and distinct, the ingestion times
+	// (minutes of the day) of the digests that name feedID or folderID; 0
+	// matches nothing. These are the times at which a feed in that folder
+	// must be fetched besides its regular schedule.
+	IngestMinutes(ctx context.Context, feedID, folderID int64) ([]int, error)
 
 	// --- Counts ---
 

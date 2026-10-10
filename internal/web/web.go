@@ -26,6 +26,10 @@ type Scheduler interface {
 	RefreshAll(ctx context.Context) error
 	Preview(ctx context.Context, feedURL string) (*sched.Preview, error)
 	Subscribe(ctx context.Context, sub sched.Subscription) (store.Feed, error)
+	// ScheduleIngest moves the next fetch of each feed earlier to its next
+	// digest ingestion time when that comes first; never later, and never
+	// for a feed in failure backoff.
+	ScheduleIngest(ctx context.Context, feedIDs []int64) error
 }
 
 // rescheduler is implemented by a Scheduler that can pull a feed's next poll
@@ -68,6 +72,9 @@ type server struct {
 	static   *staticFS
 	hosts    map[string]bool // allowed Host names besides IP literals
 	now      func() time.Time
+	// loc is the time zone of digest ingestion times, the server's local
+	// time zone (as the scheduler's); replaced in tests.
+	loc *time.Location
 }
 
 // New returns the complete HTTP handler (routes, static files, security
@@ -92,6 +99,7 @@ func newServer(d Deps) (*server, error) {
 		log:      d.Log,
 		hosts:    allowedHosts(d.Config.Listen, d.AllowedHosts),
 		now:      time.Now,
+		loc:      time.Local,
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
@@ -151,6 +159,14 @@ func (s *server) handler() http.Handler {
 
 	mux.HandleFunc("GET /tags/{id}/delete", s.handleTagDeleteConfirm)
 	mux.HandleFunc("POST /tags/{id}/delete", s.handleTagDelete)
+
+	mux.HandleFunc("POST /digests", s.handleDigestCreate)
+	mux.HandleFunc("GET /digests/{id}", s.handleDigestSettings)
+	mux.HandleFunc("POST /digests/{id}/rename", s.handleDigestRename)
+	mux.HandleFunc("POST /digests/{id}/schedule", s.handleDigestSchedule)
+	mux.HandleFunc("POST /digests/{id}/sources", s.handleDigestSources)
+	mux.HandleFunc("GET /digests/{id}/delete", s.handleDigestDeleteConfirm)
+	mux.HandleFunc("POST /digests/{id}/delete", s.handleDigestDelete)
 
 	mux.HandleFunc("/", s.handleNotFound)
 

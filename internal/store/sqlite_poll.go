@@ -166,6 +166,30 @@ func (s *SQLite) SetAllNextFetch(ctx context.Context, at time.Time) error {
 	return nil
 }
 
+// AdvanceNextFetch moves the feed's next fetch to at only when at is earlier
+// than the stored one, in one statement, so it never undoes an earlier
+// fetch requested meanwhile. A feed due now (next_fetch_at = 0) stays due.
+// It returns ErrNotFound if the feed does not exist.
+func (s *SQLite) AdvanceNextFetch(ctx context.Context, id int64, at time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE feeds SET next_fetch_at = ?1 WHERE id = ?2 AND next_fetch_at > ?1`, unixOrZero(at), id)
+	if err != nil {
+		return false, fmt.Errorf("store: advance next fetch of feed %d: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("store: advance next fetch of feed %d: %w", id, err)
+	}
+	if n > 0 {
+		return true, nil
+	}
+	var one int
+	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM feeds WHERE id = ?`, id).Scan(&one); err != nil {
+		return false, fmt.Errorf("store: advance next fetch of feed %d: %w", id, classify(err))
+	}
+	return false, nil
+}
+
 // RecordFetchSuccess upserts entries and updates fetch state in one
 // transaction: error_count = 0, last_error = NULL, last_fetched_at,
 // next_fetch_at, etag, last_modified, ttl_sec, and non-empty metadata fields. Entries

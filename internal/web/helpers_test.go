@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -43,6 +44,16 @@ type fakeSched struct {
 	rescheduled   []int64
 	rescheduleSec []int // the feed's stored interval when Reschedule ran
 	rescheduleErr error
+
+	ingested  [][]int64 // the feed ids of each ScheduleIngest call
+	ingestErr error
+}
+
+func (f *fakeSched) ScheduleIngest(_ context.Context, feedIDs []int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ingested = append(f.ingested, slices.Clone(feedIDs))
+	return f.ingestErr
 }
 
 func (f *fakeSched) Reschedule(ctx context.Context, id int64) error {

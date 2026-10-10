@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"hash/fnv"
 	"math"
 	"net/url"
@@ -180,12 +181,26 @@ func plural(n int, unit string) string {
 	return strconv.Itoa(n) + " " + unit + "s"
 }
 
+// absTimeLayout formats the full timestamps shown in tooltips and on the
+// settings pages.
+const absTimeLayout = "Mon 2 Jan 2006, 15:04 MST"
+
 // absTime is the full timestamp shown in tooltips and on the settings page.
 func absTime(t time.Time) string {
 	if t.IsZero() {
 		return "Never"
 	}
-	return t.Local().Format("Mon 2 Jan 2006, 15:04 MST")
+	return t.Local().Format(absTimeLayout)
+}
+
+// minutesPerHour converts a minute of the day (a digest's ingestion time)
+// to a clock time and back.
+const minutesPerHour = int(time.Hour / time.Minute)
+
+// clockTime renders a minute of the day as "HH:MM", the value format of an
+// <input type="time">.
+func clockTime(minute int) string {
+	return fmt.Sprintf("%02d:%02d", minute/minutesPerHour, minute%minutesPerHour)
 }
 
 // formatInterval renders a poll interval compactly: 90m, 6h, 1h30m.

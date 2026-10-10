@@ -35,6 +35,7 @@ type badgeView struct {
 
 func feedBadgeID(id int64) string   { return "badge-feed-" + strconv.FormatInt(id, 10) }
 func folderBadgeID(id int64) string { return "badge-folder-" + strconv.FormatInt(id, 10) }
+func digestBadgeID(id int64) string { return "badge-digest-" + strconv.FormatInt(id, 10) }
 
 const allBadgeID = "badge-all"
 
@@ -214,6 +215,7 @@ type scopeView struct {
 	IsFeed       bool
 	IsFolder     bool
 	IsTag        bool
+	IsDigest     bool
 	SettingsHref string
 	Grid         gridView
 	OOB          bool // swapped out of band: the grid's reload after a refresh
@@ -249,6 +251,17 @@ type folderNav struct {
 	Feeds  []feedNav
 }
 
+type digestNav struct {
+	ID     int64
+	Name   string
+	Href   string
+	Badge  badgeView
+	Active bool
+	// Schedule is the tooltip of a digest with an ingestion time, "" for
+	// none.
+	Schedule string
+}
+
 type tagNav struct {
 	ID     int64
 	Name   string
@@ -266,12 +279,14 @@ type tagListView struct {
 // sidebarView is the whole left column.
 type sidebarView struct {
 	Nav           []navItem
+	Digests       []digestNav
 	Tags          tagListView
 	Folders       []folderNav
 	Uncategorized []feedNav
 	HasFeeds      bool
 	// Unavailable is set on error pages rendered without database access:
-	// the tag and subscription lists are omitted rather than shown empty.
+	// the digest, tag and subscription lists are omitted rather than shown
+	// empty.
 	Unavailable bool
 }
 
@@ -286,6 +301,7 @@ type countsView struct {
 type sidebarData struct {
 	folders []store.Folder
 	feeds   []store.Feed
+	digests []store.Digest
 	tags    []store.Tag
 	counts  store.UnreadCounts
 }
@@ -301,6 +317,19 @@ func buildSidebar(d sidebarData, cur store.Scope) sidebarView {
 			Active: cur.Kind == store.ScopeReadLater},
 		{Label: "Favourites", Href: scopeHref(store.Scope{Kind: store.ScopeFavourites}, ""), Icon: "star",
 			Active: cur.Kind == store.ScopeFavourites},
+	}
+	for _, dg := range d.digests {
+		dn := digestNav{
+			ID:     dg.ID,
+			Name:   dg.Name,
+			Href:   scopeHref(store.Scope{Kind: store.ScopeDigest, ID: dg.ID}, ""),
+			Badge:  badgeView{ID: digestBadgeID(dg.ID), N: d.counts.ByDigest[dg.ID]},
+			Active: cur.Kind == store.ScopeDigest && cur.ID == dg.ID,
+		}
+		if dg.HasIngest {
+			dn.Schedule = "Fetched daily at " + clockTime(dg.IngestMinute)
+		}
+		sv.Digests = append(sv.Digests, dn)
 	}
 	sv.Tags = buildTagList(d.tags, cur, false)
 
@@ -363,6 +392,9 @@ func buildTagList(tags []store.Tag, cur store.Scope, oob bool) tagListView {
 func buildCounts(d sidebarData, cur store.Scope) countsView {
 	cv := countsView{Tags: buildTagList(d.tags, cur, true)}
 	cv.Badges = append(cv.Badges, badgeView{ID: allBadgeID, N: d.counts.All, OOB: true})
+	for _, dg := range d.digests {
+		cv.Badges = append(cv.Badges, badgeView{ID: digestBadgeID(dg.ID), N: d.counts.ByDigest[dg.ID], OOB: true})
+	}
 	for _, fo := range d.folders {
 		cv.Badges = append(cv.Badges, badgeView{ID: folderBadgeID(fo.ID), N: d.counts.ByFolder[fo.ID], OOB: true})
 	}
