@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/fetch"
 	"github.com/giacomomicoli/feedreader/internal/parse"
 	"github.com/giacomomicoli/feedreader/internal/safeurl"
@@ -42,6 +43,10 @@ var errNoResult = errors.New("fetch returned no response")
 //     failure, exponential backoff from the second in a row. Entries are
 //     never touched.
 //
+// In every case the next poll is at the feed's next digest ingestion time
+// instead when that comes first (see digest.go and ingestAfterPoll), except
+// that it is never earlier than a Retry-After allows.
+//
 // Every poll whose outcome is stored logs one info line (see logPolled), so
 // the log shows each check of a feed even when nothing changed. A failed
 // poll logs a warning instead (see recordFailure), before its outcome is
@@ -71,7 +76,7 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 		err = errNoResult
 	}
 	if err != nil {
-		return s.recordFailure(ctx, f, fetchedAt, took, base, err)
+		return s.recordFailure(ctx, f, started, fetchedAt, base, err)
 	}
 
 	redirected := res.PermanentURL != "" && res.PermanentURL != f.URL
@@ -80,10 +85,8 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 		if redirected {
 			f.URL = s.followPermanentRedirect(ctx, f, res.PermanentURL)
 		}
-		next := fetchedAt.Add(withHints(base, storedTTL(f), res.MaxAge))
-		var scheduled time.Time // next, or an earlier fetch requested meanwhile
-		err := s.writeFeed(ctx, f, func(cur store.Feed) error {
-			scheduled = keepRequested(f, cur, next)
+		regular := fetchedAt.Add(withHints(base, storedTTL(f), res.MaxAge))
+		next, scheduled, err := s.storeOutcome(ctx, f, started, regular, func(scheduled time.Time) error {
 			return s.st.RecordNotModified(ctx, f.ID, fetchedAt, scheduled)
 		})
 		if err == nil {
@@ -98,18 +101,14 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 		if redirected {
 			err = fmt.Errorf("moved permanently to %s: %w", redact(res.PermanentURL), err)
 		}
-		return s.recordFailure(ctx, f, fetchedAt, took, base, err)
+		return s.recordFailure(ctx, f, started, fetchedAt, base, err)
 	}
 	if redirected {
 		f.URL = s.followPermanentRedirect(ctx, f, res.PermanentURL)
 	}
-	next := fetchedAt.Add(withHints(base, doc.TTL, res.MaxAge))
-	var (
-		inserted  int
-		scheduled time.Time // next, or an earlier fetch requested meanwhile
-	)
-	err = s.writeFeed(ctx, f, func(cur store.Feed) (err error) {
-		scheduled = keepRequested(f, cur, next)
+	regular := fetchedAt.Add(withHints(base, doc.TTL, res.MaxAge))
+	var inserted int
+	next, scheduled, err := s.storeOutcome(ctx, f, started, regular, func(scheduled time.Time) (err error) {
 		inserted, err = s.st.RecordFetchSuccess(ctx, store.FetchSuccess{
 			FeedID:        f.ID,
 			FetchedAt:     fetchedAt,
@@ -129,13 +128,65 @@ func (s *Scheduler) poll(ctx context.Context, f store.Feed) (holdUntil time.Time
 			return s.checkStored(ctx, f, next, err)
 		}
 		s.log.Error("could not store fetched entries", "feed", f.ID, "err", err)
-		return s.recordFailure(ctx, f, fetchedAt, took, base, fmt.Errorf("could not save entries: %w", err))
+		return s.recordFailure(ctx, f, started, fetchedAt, base, fmt.Errorf("could not save entries: %w", err))
 	}
 	s.logPolled(f, res.StatusCode, inserted, took, scheduled)
 	if doc.IconURL == "" {
 		s.backfillAvatar(ctx, f)
 	}
 	return time.Time{}
+}
+
+// storeOutcome stores the outcome of a successful poll of f with record,
+// passing it the next fetch to store, scheduled: the next fetch of the poll
+// (see nextPoll, with regular, the one its interval and the server's hints
+// give), or an earlier fetch requested meanwhile (see keepRequested). The
+// write happens only while f is still subscribed (see writeFeed), and is
+// followed by recheckIngest, which returns scheduled as it then stands. next
+// is returned also when nothing was stored: it is how long the feed must
+// then be held (see checkStored).
+func (s *Scheduler) storeOutcome(ctx context.Context, f store.Feed, started, regular time.Time,
+	record func(scheduled time.Time) error) (next, scheduled time.Time, err error) {
+	nextFor := func(cur store.Feed) time.Time { return s.nextPoll(ctx, cur, started, regular) }
+	err = s.writeFeed(ctx, f, func(cur store.Feed) error {
+		next = nextFor(cur)
+		scheduled = keepRequested(f, cur, next)
+		if err := record(scheduled); err != nil {
+			return err
+		}
+		if at := s.recheckIngest(ctx, f.ID, nextFor); !at.IsZero() {
+			scheduled = at
+		}
+		return nil
+	})
+	if next.IsZero() { // the feed's row could not be read
+		next = s.nextPoll(ctx, f, started, regular)
+	}
+	return next, scheduled, err
+}
+
+// nextPoll returns the next fetch after a poll of cur that was sent at
+// started: regular, or the feed's next digest ingestion time
+// (ingestAfterPoll) when that comes first.
+func (s *Scheduler) nextPoll(ctx context.Context, cur store.Feed, started, regular time.Time) time.Time {
+	return earliest(regular, s.ingestAfterPoll(ctx, cur, started))
+}
+
+// ingestAfterPoll returns the next digest ingestion time of the feed after
+// a poll of it that was sent at started, or the zero time for none.
+//
+// cur must be the feed's row read when the outcome is stored (in writeFeed),
+// not as the fetch started: a feed moved to another folder meanwhile is
+// fetched at the digest times of its new folder, which ScheduleIngest cannot
+// set for a feed that is due (it only ever moves a fetch earlier). The
+// outcome is stored in a transaction of its own, after that read, so a move
+// or a digest change committed in between is caught by recheckIngest once
+// it is stored. The ingestion time is the first after the request was sent,
+// not after its answer: a request that straddles a digest time may have
+// missed what was published for it, so the feed is due again at once, and
+// the poll after that, sent after the digest time, schedules the next day's.
+func (s *Scheduler) ingestAfterPoll(ctx context.Context, cur store.Feed, started time.Time) time.Time {
+	return s.pollIngest(ctx, cur.ID, cur.FolderID, started)
 }
 
 // logPolled logs the one info line of a poll whose outcome was stored: the
@@ -150,22 +201,54 @@ func (s *Scheduler) logPolled(f store.Feed, status, inserted int, took time.Dura
 
 // recordFailure stores a failed poll: error_count + 1, last_error, and the
 // next poll after failureDelay (a quick first retry, then backoff, both
-// honouring Retry-After). took is how long the fetch took.
+// honouring Retry-After), or at the feed's next digest ingestion time when
+// that comes first (see ingestAfterPoll, and recheckIngest after the
+// write). The server's Retry-After stays a lower bound even then (see
+// retryFloor). The request was sent at started and answered (or failed) at
+// fetchedAt.
 //
 // A failure that cannot be stored leaves error_count where it was, so the
 // next poll would look like this same failure again (a first one gets the
 // quick retry) for as long as the database stays unwritable. The feed is
 // then held as long as one more failure in a row would delay it.
-func (s *Scheduler) recordFailure(ctx context.Context, f store.Feed, fetchedAt time.Time, took, base time.Duration, cause error) time.Time {
+func (s *Scheduler) recordFailure(ctx context.Context, f store.Feed, started, fetchedAt time.Time, base time.Duration, cause error) time.Time {
 	errorCount := f.ErrorCount + 1
-	next := fetchedAt.Add(failureDelay(base, errorCount, retryAfter(cause)))
-	hold := fetchedAt.Add(failureDelay(base, errorCount+1, retryAfter(cause)))
+	ra := retryAfter(cause)
 	msg := failureMessage(cause)
-	s.log.Warn("feed fetch failed", "feed", f.ID, "url", redact(f.URL), "err", msg, "took", took,
-		"consecutive_failures", errorCount, "next_fetch", next)
-	return s.checkStored(ctx, f, hold, s.writeFeed(ctx, f, func(cur store.Feed) error {
-		return s.st.RecordFetchError(ctx, f.ID, msg, fetchedAt, keepRequested(f, cur, next))
-	}))
+	// schedule returns the next poll and the hold for the feed's row cur.
+	schedule := func(cur store.Feed) (next, hold time.Time) {
+		ingest := s.ingestAfterPoll(ctx, cur, started)
+		after := func(failures int) time.Time {
+			return retryFloor(earliest(fetchedAt.Add(failureDelay(base, failures, ra)), ingest), fetchedAt, ra)
+		}
+		return after(errorCount), after(errorCount + 1)
+	}
+	var hold time.Time
+	warned := false
+	warn := func(next time.Time) {
+		warned = true
+		s.log.Warn("feed fetch failed", "feed", f.ID, "url", redact(f.URL), "err", msg, "took", fetchedAt.Sub(started),
+			"consecutive_failures", errorCount, "next_fetch", next)
+	}
+	err := s.writeFeed(ctx, f, func(cur store.Feed) error {
+		var next time.Time
+		next, hold = schedule(cur)
+		warn(next)
+		if err := s.st.RecordFetchError(ctx, f.ID, msg, fetchedAt, keepRequested(f, cur, next)); err != nil {
+			return err
+		}
+		s.recheckIngest(ctx, f.ID, func(cur store.Feed) time.Time {
+			n, _ := schedule(cur)
+			return n
+		})
+		return nil
+	})
+	if !warned { // the feed's row could not be read: the warning is logged all the same
+		var next time.Time
+		next, hold = schedule(f)
+		warn(next)
+	}
+	return s.checkStored(ctx, f, hold, err)
 }
 
 // writeFeed runs record, a store call that writes the outcome of polling f,
@@ -243,6 +326,19 @@ func retryAfter(err error) time.Duration {
 		return se.RetryAfter
 	}
 	return 0
+}
+
+// retryFloor keeps next no earlier than the server's Retry-After ra after
+// fetchedAt, capped at config.MaxBackoff as in failureDelay, so that a
+// digest's ingestion time never shortens the wait a server asked for.
+func retryFloor(next, fetchedAt time.Time, ra time.Duration) time.Time {
+	if ra <= 0 {
+		return next
+	}
+	if floor := fetchedAt.Add(min(ra, config.MaxBackoff)); next.Before(floor) {
+		return floor
+	}
+	return next
 }
 
 // failureMessage turns a poll error into the short, single-line last_error

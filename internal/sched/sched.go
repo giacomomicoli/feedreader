@@ -77,6 +77,9 @@ type Scheduler struct {
 	cfg     config.Config
 	log     *slog.Logger
 	now     func() time.Time // clock; replaced in tests
+	// loc is the time zone of digest ingestion times: the server's local
+	// time zone; replaced in tests.
+	loc *time.Location
 
 	wake    chan struct{} // capacity 1: pending wake-ups coalesce
 	running atomic.Bool
@@ -127,6 +130,7 @@ func New(st store.Store, f Fetcher, cfg config.Config, log *slog.Logger) *Schedu
 		cfg:         cfg,
 		log:         log,
 		now:         time.Now,
+		loc:         time.Local,
 		wake:        make(chan struct{}, 1),
 		cache:       newPreviewCache(previewCacheTTL, previewCacheMax),
 		addSlots:    make(chan struct{}, addFetchSlots),
@@ -196,28 +200,34 @@ func (s *Scheduler) RefreshAll(ctx context.Context) error {
 // instead of after the schedule made with the old interval fires (the
 // per-feed override): the next fetch moves to the last fetch plus the new
 // interval, raised by the feed's stored <ttl>, or to now when that time has
-// passed. It only ever moves a fetch earlier, and leaves alone a feed that
-// is in failure backoff or has never been fetched. It returns an error
-// wrapping store.ErrNotFound when the feed does not exist.
+// passed, and to the feed's next digest ingestion time when that is earlier.
+// It only ever moves a fetch earlier, leaves alone a feed that is in failure
+// backoff (it may be waiting out a Retry-After, see recordFailure), and
+// leaves the interval out for a feed that has never been fetched. It returns
+// an error wrapping store.ErrNotFound when the feed does not exist.
 func (s *Scheduler) Reschedule(ctx context.Context, feedID int64) error {
 	f, err := s.st.GetFeed(ctx, feedID)
 	if err != nil {
 		return fmt.Errorf("sched: reschedule feed %d: %w", feedID, err)
 	}
-	if f.ErrorCount > 0 || f.LastFetchedAt.IsZero() {
+	if f.ErrorCount > 0 {
 		return nil
 	}
-	next := f.LastFetchedAt.Add(withHints(s.baseInterval(f), storedTTL(f), 0))
-	if now := s.now(); next.Before(now) {
-		next = now
+	now := s.now()
+	var next time.Time
+	if !f.LastFetchedAt.IsZero() {
+		next = f.LastFetchedAt.Add(withHints(s.baseInterval(f), storedTTL(f), 0))
+		if next.Before(now) {
+			next = now
+		}
 	}
-	if !next.Before(f.NextFetchAt) {
-		return nil
+	ingest, err := s.nextIngest(ctx, f.ID, f.FolderID, now)
+	if err == nil {
+		err = s.advance(ctx, f, earliest(next, ingest))
 	}
-	if err := s.st.SetNextFetch(ctx, feedID, next); err != nil {
+	if err != nil {
 		return fmt.Errorf("sched: reschedule feed %d: %w", feedID, err)
 	}
-	s.signal()
 	return nil
 }
 
@@ -276,7 +286,13 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 // the avatar on the channel's page, looked up with one more request once
 // the subscription is stored (see lookupAvatar). The first poll is
 // scheduled one interval of the feed's kind (raised by the feed's <ttl> and
-// Cache-Control max-age hints) after now.
+// Cache-Control max-age hints) after now, or at the first ingestion time of
+// a digest that names the folder after the stored fetch was sent, when that
+// comes first. That fetch may be a Preview's from up to previewCacheTTL ago:
+// a digest time that has passed since then may be missing from it, so the
+// feed is then due at once (one extra fetch, as after a poll that straddles
+// a digest time). The folder's ingestion times are read again once the feed
+// is created (see recheckIngest).
 func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed, error) {
 	feedURL := strings.TrimSpace(sub.FeedURL)
 	if feedURL == "" {
@@ -293,7 +309,11 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 		}
 	}
 
-	now := s.now()
+	regular := s.now().Add(withHints(s.baseInterval(store.Feed{Kind: fd.kind}), fd.doc.TTL, fd.maxAge))
+	// next is the first poll of the new feed, for its row cur.
+	next := func(cur store.Feed) time.Time {
+		return earliest(regular, s.pollIngest(ctx, cur.ID, cur.FolderID, fd.started))
+	}
 	nf := store.NewFeed{
 		Kind:          fd.kind,
 		URL:           fd.feedURL,
@@ -305,12 +325,17 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 		ETag:          fd.etag,
 		LastModified:  fd.lastModified,
 		FetchedAt:     fd.fetchedAt,
-		NextFetchAt:   now.Add(withHints(s.baseInterval(store.Feed{Kind: fd.kind}), fd.doc.TTL, fd.maxAge)),
+		NextFetchAt:   next(store.Feed{FolderID: sub.FolderID}),
 		TTLSec:        ttlSec(fd.doc.TTL),
 	}
 	entries := newEntries(fd.doc.Entries, fd.fetchedAt)
 	s.idGuard.Lock()
 	feed, err := s.st.CreateFeed(ctx, nf, entries, config.InitialUnread)
+	if err == nil {
+		if at := s.recheckIngest(ctx, feed.ID, next); !at.IsZero() {
+			feed.NextFetchAt = at
+		}
+	}
 	s.idGuard.Unlock()
 	if err != nil {
 		return store.Feed{}, fmt.Errorf("sched: subscribe %s: %w", redact(fd.feedURL), err)

@@ -51,7 +51,9 @@ func scanEntryView(r rowScanner) (EntryView, error) {
 // scopeFilter returns a boolean SQL expression selecting the entries of scope
 // s, plus its arguments. The expression refers to the entry as "e" and to its
 // feed (already joined on f.id = e.feed_id) as "f". It is shared by
-// ListEntries and MarkScopeReadUpTo so both agree on what a scope contains.
+// ListEntries and MarkScopeReadUpTo so both agree on what a scope contains;
+// a digest's grid has a query of its own (digestListSQL), which its tests
+// hold to the same entries.
 // The literal "= 1" comparisons let the planner use the partial indexes.
 func scopeFilter(s Scope) (string, []any, error) {
 	switch s.Kind {
@@ -70,6 +72,8 @@ func scopeFilter(s Scope) (string, []any, error) {
 		return "e.is_favourite = 1", nil, nil
 	case ScopeTag:
 		return "e.id IN (SELECT entry_id FROM entry_tags WHERE tag_id = ?)", []any{s.ID}, nil
+	case ScopeDigest:
+		return digestFilter, []any{s.ID, s.ID, s.ID}, nil
 	}
 	return "", nil, fmt.Errorf("unknown scope %q: %w", s.Kind, ErrInvalid)
 }
@@ -105,10 +109,15 @@ func (s *SQLite) ListEntries(ctx context.Context, q ListQuery) (Page, error) {
 }
 
 // listQuerySQL builds the grid query for q. It fetches Limit+1 rows so the
-// caller can tell whether another page exists.
+// caller can tell whether another page exists. A digest has a query of its
+// own (see digestListSQL).
 func listQuerySQL(q ListQuery) (string, []any, error) {
 	if q.Limit <= 0 {
 		return "", nil, fmt.Errorf("limit %d: %w", q.Limit, ErrInvalid)
+	}
+	if q.Scope.Kind == ScopeDigest {
+		query, args := digestListSQL(q)
+		return query, args, nil
 	}
 	where, args, err := scopeFilter(q.Scope)
 	if err != nil {
@@ -279,31 +288,45 @@ func (s *SQLite) MarkScopeReadUpTo(ctx context.Context, sc Scope, maxID int64, a
 	return n, nil
 }
 
+// unreadCountsSQL answers every sidebar badge in one statement: a row
+// ("feed", feed id, folder id, unread count) per feed, each count answered
+// from the covering partial index entries_unread, then a row ("digest",
+// digest id, NULL, unread count) per digest with unread entries (see
+// digestUnreadSQL).
+const unreadCountsSQL = `SELECT 'feed', f.id, f.folder_id,
+		(SELECT count(*) FROM entries e WHERE e.feed_id = f.id AND e.is_read = 0)
+	FROM feeds f
+	UNION ALL
+	SELECT 'digest', digest_id, NULL, count(*) FROM (` + digestUnreadSQL + `) GROUP BY digest_id`
+
 // UnreadCounts computes all sidebar badges with a single query; folder and
-// overall totals are summed from the per-feed rows. Each per-feed count is
-// answered from the covering partial index entries_unread. Feeds and folders
-// without unread entries are absent from the maps.
+// overall totals are summed from the per-feed rows. Feeds, folders and
+// digests without unread entries are absent from the maps.
 func (s *SQLite) UnreadCounts(ctx context.Context) (UnreadCounts, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT f.id, f.folder_id,
-			(SELECT count(*) FROM entries e WHERE e.feed_id = f.id AND e.is_read = 0)
-		 FROM feeds f`)
+	rows, err := s.db.QueryContext(ctx, unreadCountsSQL)
 	if err != nil {
 		return UnreadCounts{}, fmt.Errorf("store: unread counts: %w", err)
 	}
 	defer rows.Close()
-	c := UnreadCounts{ByFeed: map[int64]int{}, ByFolder: map[int64]int{}}
+	c := UnreadCounts{ByFeed: map[int64]int{}, ByFolder: map[int64]int{}, ByDigest: map[int64]int{}}
 	for rows.Next() {
-		var feedID int64
-		var folderID sql.NullInt64
-		var n int
-		if err := rows.Scan(&feedID, &folderID, &n); err != nil {
+		var (
+			kind     string
+			id       int64
+			folderID sql.NullInt64
+			n        int
+		)
+		if err := rows.Scan(&kind, &id, &folderID, &n); err != nil {
 			return UnreadCounts{}, fmt.Errorf("store: unread counts: %w", err)
 		}
 		if n == 0 {
 			continue
 		}
-		c.ByFeed[feedID] = n
+		if kind == "digest" {
+			c.ByDigest[id] = n
+			continue
+		}
+		c.ByFeed[id] = n
 		if folderID.Valid {
 			c.ByFolder[folderID.Int64] += n
 		}

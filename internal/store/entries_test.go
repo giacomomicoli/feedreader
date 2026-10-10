@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -295,11 +296,199 @@ func TestListEntries_GridQueriesWalkAnIndexInOrder(t *testing.T) {
 			}
 		}
 	}
-	plan := explain(t, s, `SELECT f.id, f.folder_id,
-		(SELECT count(*) FROM entries e WHERE e.feed_id = f.id AND e.is_read = 0) FROM feeds f`)
-	if !strings.Contains(plan, "COVERING INDEX entries_unread") {
-		t.Errorf("unread counts do not use the covering partial index:\n%s", plan)
+	// Folder and tag scopes read only their own entries through an index
+	// (and sort that page of the library); they never scan the table.
+	for _, sc := range []Scope{{Kind: ScopeFolder, ID: 1}, {Kind: ScopeTag, ID: 1}} {
+		for _, unread := range []bool{false, true} {
+			query, args, err := listQuerySQL(ListQuery{Scope: sc, UnreadOnly: unread, Limit: config.ScopePageSize, After: cursor})
+			mustNoErr(t, err)
+			if plan := explain(t, s, query, args...); fullTableScan(plan, "e") {
+				t.Errorf("%s unread=%v: plan scans every entry:\n%s", sc.Kind, unread, plan)
+			}
+		}
 	}
+	// A digest reads a bounded set of candidates (see digestListSQL): on an
+	// empty database, and on a populated library before and after the
+	// statistics that ANALYZE and the PRAGMA optimize of Close write. With
+	// statistics, a filter over the whole library lets the planner walk
+	// every entry in grid order looking for the digest's.
+	// The unread counts, run after every action, likewise read only what
+	// the digests name, whether or not their membership tables are empty
+	// or have statistics.
+	checkDigestPlans(t, "empty database", s, Scope{Kind: ScopeDigest, ID: 1}, cursor)
+	checkUnreadCountsPlan(t, "empty database", s)
+	lib := newPlanLibrary(t)
+	for _, sc := range lib.digests {
+		checkDigestPlans(t, "populated", lib.s, sc, cursor)
+	}
+	checkUnreadCountsPlan(t, "populated", lib.s)
+	lib.reopenAnalyzed(t)
+	for _, sc := range lib.digests {
+		checkDigestPlans(t, "analyzed", lib.s, sc, cursor)
+	}
+	checkUnreadCountsPlan(t, "analyzed", lib.s)
+}
+
+// checkUnreadCountsPlan fails the test unless the unread counts query
+// answers each feed's count from the covering partial index entries_unread
+// and drives each digest's arm from its membership table (digest_feeds
+// "dfe", digest_folders "dfo", digest_tags "dt"): it may scan the feeds
+// ("f", one count each) and the memberships, but it only ever looks up the
+// entries ("e"), entry tags ("et") and folder feeds ("ff") they lead to, so
+// it never walks every unread entry or every entry tag of the library.
+func checkUnreadCountsPlan(t *testing.T, db string, s *SQLite) {
+	t.Helper()
+	plan := explain(t, s, unreadCountsSQL)
+	lines := strings.Split(plan, "\n")
+	searches := map[string][]string{
+		"e":  {"SEARCH e USING COVERING INDEX entries_unread (feed_id=?)", "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"},
+		"et": {"SEARCH et USING INDEX entry_tags_tag (tag_id=?)", "SEARCH et USING COVERING INDEX entry_tags_tag (tag_id=?)"},
+		"ff": {"SEARCH ff USING COVERING INDEX feeds_folder (folder_id=?)", "SEARCH ff USING INDEX feeds_folder (folder_id=?)"},
+	}
+	scans := []string{"f", "dfe", "dfo", "dt"}
+	ok := true
+	for _, l := range lines {
+		op, rest, _ := strings.Cut(l, " ")
+		alias, _, _ := strings.Cut(rest, " ")
+		switch {
+		case op == "SCAN" && !strings.HasPrefix(alias, "(") && !slices.Contains(scans, alias):
+			ok = false
+		case op == "SEARCH" && searches[alias] != nil && !slices.Contains(searches[alias], l):
+			ok = false
+		}
+	}
+	for _, drive := range scans {
+		if !slices.ContainsFunc(lines, func(l string) bool { return l == "SCAN "+drive || strings.HasPrefix(l, "SCAN "+drive+" ") }) {
+			ok = false
+		}
+	}
+	if !ok {
+		t.Errorf("%s: the unread counts do not read only each feed's count and what the digests name:\n%s", db, plan)
+	}
+}
+
+// checkDigestPlans fails the test unless the grid query of digest scope sc,
+// in both filters and with and without a cursor, reads the page's entries
+// ("e") only by rowid, from the candidates, and never walks a library-wide
+// grid index (entries_pub, entries_read_pub) or scans the entries under any
+// alias.
+func checkDigestPlans(t *testing.T, db string, s *SQLite, sc Scope, cursor *Cursor) {
+	t.Helper()
+	const byRowid = "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+	for _, unread := range []bool{false, true} {
+		for _, after := range []*Cursor{nil, cursor} {
+			query, args, err := listQuerySQL(ListQuery{Scope: sc, UnreadOnly: unread, Limit: config.ScopePageSize, After: after})
+			mustNoErr(t, err)
+			plan := explain(t, s, query, args...)
+			lines := strings.Split(plan, "\n")
+			walks := slices.ContainsFunc(lines, func(l string) bool {
+				return strings.Contains(l, "INDEX entries_pub") || strings.Contains(l, "INDEX entries_read_pub")
+			})
+			scans := slices.ContainsFunc(lines, func(l string) bool {
+				return slices.ContainsFunc([]string{"e", "c", "x", "t"}, func(alias string) bool {
+					return l == "SCAN "+alias || strings.HasPrefix(l, "SCAN "+alias+" ")
+				})
+			})
+			outer := slices.DeleteFunc(slices.Clone(lines), func(l string) bool {
+				return !strings.HasPrefix(l, "SEARCH e ")
+			})
+			if walks || scans || len(outer) == 0 || slices.ContainsFunc(outer, func(l string) bool { return l != byRowid }) {
+				t.Errorf("%s: digest %d unread=%v after=%v: plan does not read only the digest's candidates:\n%s",
+					db, sc.ID, unread, after != nil, plan)
+			}
+		}
+	}
+}
+
+// The library of the digest plan tests: enough feeds and entries that, with
+// statistics, the planner finds walking the library in grid order cheaper
+// than looking a digest's entries up, unless the query gives it no choice.
+const (
+	planLibraryFeeds   = 20
+	planEntriesPerFeed = 3 * config.ScopePageSize // three pages of each feed
+)
+
+// planLibrary is a populated database for the digest plan tests:
+//
+//	folder Old:  one feed whose entries are older than every other, unread
+//	folder Most: planLibraryFeeds feeds, InitialUnread newest unread each
+//	tag "rare" on one entry of the Old feed
+//	tag "topic N" on every entry of the N-th feed in Most
+//
+// with the digests Old (folder Old: few, old entries), Most (folder Most:
+// most of the library), Rare (tag only) and Empty (no sources).
+type planLibrary struct {
+	s       *SQLite
+	path    string
+	digests []Scope
+}
+
+func newPlanLibrary(t *testing.T) *planLibrary {
+	t.Helper()
+	lib := &planLibrary{path: filepath.Join(t.TempDir(), "library.db")}
+	lib.open(t)
+	s, ctx := lib.s, t.Context()
+	old, most := mustFolder(t, s, "Old"), mustFolder(t, s, "Most")
+	nf := newFeed("https://old.example/feed", KindRSS)
+	nf.FolderID = old.ID
+	oldest := t0.Add(-planEntriesPerFeed * time.Hour)
+	oldFeed := mustCreateFeed(t, s, nf, entriesNewestFirst("old", planEntriesPerFeed, oldest), planEntriesPerFeed)
+	for i := range planLibraryFeeds {
+		nf := newFeed(fmt.Sprintf("https://f%d.example/feed", i), KindRSS)
+		nf.FolderID = most.ID
+		newest := t0.Add(-time.Duration(i) * time.Minute)
+		prefix := fmt.Sprintf("f%d-", i)
+		f := mustCreateFeed(t, s, nf, entriesNewestFirst(prefix, planEntriesPerFeed, newest), config.InitialUnread)
+		// Every entry in Most carries a tag that no digest names, one per
+		// feed, as in a library tagged for years.
+		tag, err := s.AddEntryTag(ctx, entryID(t, s, f.ID, prefix+"0"), fmt.Sprintf("topic %d", i))
+		mustNoErr(t, err)
+		_, err = s.db.ExecContext(ctx, `INSERT OR IGNORE INTO entry_tags (entry_id, tag_id)
+			SELECT id, ? FROM entries WHERE feed_id = ?`, tag.ID, f.ID)
+		mustNoErr(t, err)
+	}
+	rare, err := s.AddEntryTag(ctx, entryID(t, s, oldFeed.ID, "old0"), "rare")
+	mustNoErr(t, err)
+	for _, src := range []DigestSources{
+		{FolderIDs: idList(old.ID)}, {FolderIDs: idList(most.ID)}, {TagIDs: idList(rare.ID)}, {},
+	} {
+		d := mustDigest(t, s, fmt.Sprintf("Digest %d", len(lib.digests)))
+		mustSources(t, s, d.ID, src)
+		lib.digests = append(lib.digests, Scope{Kind: ScopeDigest, ID: d.ID})
+	}
+	return lib
+}
+
+func (lib *planLibrary) open(t *testing.T) {
+	t.Helper()
+	s, err := OpenSQLite(lib.path)
+	mustNoErr(t, err)
+	s.now = func() time.Time { return t0 }
+	t.Cleanup(func() { _ = s.Close() })
+	lib.s = s
+}
+
+// reopenAnalyzed writes the statistics a long-running database has (ANALYZE,
+// then the PRAGMA optimize of Close) and opens the library again.
+func (lib *planLibrary) reopenAnalyzed(t *testing.T) {
+	t.Helper()
+	_, err := lib.s.db.ExecContext(t.Context(), "ANALYZE")
+	mustNoErr(t, err)
+	mustNoErr(t, lib.s.Close())
+	lib.open(t)
+	var stats int
+	mustNoErr(t, lib.s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_stat1`).Scan(&stats))
+	if stats == 0 {
+		t.Fatal("no statistics after ANALYZE and reopening")
+	}
+}
+
+// fullTableScan reports whether plan reads every row of the table aliased
+// alias without an index ("SCAN e", not "SCAN e USING INDEX x").
+func fullTableScan(plan, alias string) bool {
+	return slices.ContainsFunc(strings.Split(plan, "\n"), func(l string) bool {
+		return l == "SCAN "+alias || (strings.HasPrefix(l, "SCAN "+alias+" ") && !strings.Contains(l, "USING"))
+	})
 }
 
 func explain(t *testing.T, s *SQLite, query string, args ...any) string {
@@ -517,7 +706,8 @@ func TestUnreadCounts_EmptyLibrary(t *testing.T) {
 	s := openTest(t)
 	c, err := s.UnreadCounts(t.Context())
 	mustNoErr(t, err)
-	if c.All != 0 || c.ByFeed == nil || c.ByFolder == nil || len(c.ByFeed) != 0 || len(c.ByFolder) != 0 {
+	if c.All != 0 || c.ByFeed == nil || c.ByFolder == nil || c.ByDigest == nil ||
+		len(c.ByFeed) != 0 || len(c.ByFolder) != 0 || len(c.ByDigest) != 0 {
 		t.Fatalf("UnreadCounts = %+v, want zero with empty non-nil maps", c)
 	}
 }
@@ -534,5 +724,5 @@ func equalCounts(a, b UnreadCounts) bool {
 		}
 		return true
 	}
-	return a.All == b.All && eq(a.ByFeed, b.ByFeed) && eq(a.ByFolder, b.ByFolder)
+	return a.All == b.All && eq(a.ByFeed, b.ByFeed) && eq(a.ByFolder, b.ByFolder) && eq(a.ByDigest, b.ByDigest)
 }

@@ -30,22 +30,30 @@ type fetched struct {
 	lastModified string
 	maxAge       time.Duration
 	doc          *parse.Feed
-	fetchedAt    time.Time
+	// started is when the request was sent, or a little before: it is taken
+	// before the request waits for its add-flow slot. Subscribe schedules the
+	// first poll no later than the first digest ingestion time after it.
+	started time.Time
+	// fetchedAt is when the response arrived: the feed's last fetch, and
+	// what the age of the cached fetch counts from.
+	fetchedAt time.Time
 }
 
 // fetchFeed fetches and parses feedURL unconditionally and caches the
 // result under both the requested URL and the final feed URL.
 func (s *Scheduler) fetchFeed(ctx context.Context, feedURL string) (*fetched, error) {
+	started := s.now()
 	res, err := s.addFetch(ctx, fetch.Request{URL: feedURL, Accept: fetch.FeedAccept})
 	if err != nil {
 		return nil, err
 	}
-	return s.keep(feedURL, res)
+	return s.keep(feedURL, res, started)
 }
 
-// keep parses res, the response to an add-flow fetch of feedURL, and caches
-// the result under both the requested URL and the final feed URL.
-func (s *Scheduler) keep(feedURL string, res *fetch.Result) (*fetched, error) {
+// keep parses res, the response to an add-flow fetch of feedURL started at
+// started, and caches the result under both the requested URL and the final
+// feed URL.
+func (s *Scheduler) keep(feedURL string, res *fetch.Result, started time.Time) (*fetched, error) {
 	if res == nil {
 		return nil, fmt.Errorf("fetch %s: %w", redact(feedURL), errNoResult)
 	}
@@ -65,6 +73,7 @@ func (s *Scheduler) keep(feedURL string, res *fetch.Result) (*fetched, error) {
 		lastModified: res.LastModified,
 		maxAge:       res.MaxAge,
 		doc:          doc,
+		started:      started,
 		fetchedAt:    fetchedAt,
 	}
 	s.cache.put(fd, feedURL, fd.feedURL)
@@ -84,11 +93,12 @@ func (s *Scheduler) ResolveFetcher() Fetcher { return resolveFetcher{s} }
 type resolveFetcher struct{ s *Scheduler }
 
 func (f resolveFetcher) Fetch(ctx context.Context, r fetch.Request) (*fetch.Result, error) {
+	started := f.s.now()
 	res, err := f.s.addFetch(ctx, r)
 	if err == nil && res != nil && !res.NotModified && parse.Detect(res.Body, res.ContentType) {
 		// A feed that does not parse is not cached: Preview fetches it
 		// again and reports the error.
-		_, _ = f.s.keep(r.URL, res)
+		_, _ = f.s.keep(r.URL, res, started)
 	}
 	return res, err
 }
