@@ -1,4 +1,5 @@
-{{/* Left column: scopes, tags, folders with their feeds, new-folder form. */}}
+{{/* Left column: scopes, digests, tags, folders with their feeds, and the
+     new-folder and new-digest forms. */}}
 {{define "sidebar"}}
 <aside class="sidebar">
   <div class="sidebar-head">
@@ -13,6 +14,15 @@
     </ul>
 
     {{if not .Unavailable}}
+    <h2 class="nav-heading">Digests</h2>
+    <ul class="nav-list digest-list">
+      {{range .Digests}}
+      <li><a class="nav-item digest-row{{if .Active}} is-active{{end}}" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}{{if .Schedule}} title="{{.Schedule}}"{{end}}>{{template "icon" "digest"}}<span class="nav-label">{{.Name}}</span>{{template "badge" .Badge}}</a></li>
+      {{else}}
+      <li class="nav-empty">Digests combine sources, folders and tags in one view.</li>
+      {{end}}
+    </ul>
+
     <h2 class="nav-heading">Tags</h2>
     {{template "sidebar-tags" .Tags}}
 
@@ -36,14 +46,24 @@
     {{end}}
   </nav>
 
-  <form class="new-folder" method="post" action="/folders" hx-post="/folders" hx-target="#err-new-folder" hx-swap="innerHTML">
-    <label class="nav-heading" for="new-folder-name">New folder</label>
-    <div class="input-row">
-      <input id="new-folder-name" name="name" type="text" required maxlength="{{maxName}}" placeholder="Folder name" autocomplete="off">
-      <button class="btn" type="submit">Create</button>
-    </div>
-    <p class="form-error" id="err-new-folder" aria-live="polite"></p>
-  </form>
+  <div class="sidebar-forms">
+    <form class="new-name" method="post" action="/folders" hx-post="/folders" hx-target="#err-new-folder" hx-swap="innerHTML">
+      <label class="nav-heading" for="new-folder-name">New folder</label>
+      <div class="input-row">
+        <input id="new-folder-name" name="name" type="text" required maxlength="{{maxName}}" placeholder="Folder name" autocomplete="off">
+        <button class="btn" type="submit">Create</button>
+      </div>
+      <p class="form-error" id="err-new-folder" aria-live="polite"></p>
+    </form>
+    <form class="new-name" method="post" action="/digests" hx-post="/digests" hx-target="#err-new-digest" hx-swap="innerHTML">
+      <label class="nav-heading" for="new-digest-name">New digest</label>
+      <div class="input-row">
+        <input id="new-digest-name" name="name" type="text" required maxlength="{{maxName}}" placeholder="Digest name" autocomplete="off">
+        <button class="btn" type="submit">Create</button>
+      </div>
+      <p class="form-error" id="err-new-digest" aria-live="polite"></p>
+    </form>
+  </div>
 </aside>
 {{end}}
 

@@ -16,7 +16,7 @@ import (
 // Pages are full documents: the "layout" template with a page-specific
 // "main". Each page template set is a clone of the base set, built once at
 // startup (html/template sets cannot be cloned after first execution).
-var pageNames = []string{"home", "entry", "add", "feed", "confirm", "error"}
+var pageNames = []string{"home", "entry", "add", "feed", "digest", "confirm", "error"}
 
 // renderer holds the parsed templates.
 type renderer struct {
@@ -80,6 +80,9 @@ func (s *server) loadSidebarData(ctx context.Context) (sidebarData, error) {
 	}
 	if d.feeds, err = s.store.ListFeeds(ctx); err != nil {
 		return d, fmt.Errorf("list feeds: %w", err)
+	}
+	if d.digests, err = s.store.ListDigests(ctx); err != nil {
+		return d, fmt.Errorf("list digests: %w", err)
 	}
 	if d.tags, err = s.store.ListTags(ctx); err != nil {
 		return d, fmt.Errorf("list tags: %w", err)

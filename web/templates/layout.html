@@ -2,11 +2,13 @@
   Full-page shell. "main" is defined per page by internal/web (it calls the
   matching "page-*" template). CSP: no inline scripts or style attributes.
 
-  htmx responseHandling: 409 and 422 are the app's in-place form answers.
-  400, 404, 413 and 500 are the statuses the app's own error responses use;
-  those always carry HX-Retarget: #notice (writeError). Any other error, such
-  as a reverse proxy's 502 while the service restarts, is never swapped into
-  the card or grid it was aimed at; static/app.js reports it in #notice.
+  htmx responseHandling: 409 and 422 are the app's in-place form answers
+  (the 409 to a stale digest sources form replaces that form itself, with
+  HX-Retarget). 400, 404, 413 and 500 are the statuses the app's own error
+  responses use; those always carry HX-Retarget: #notice (writeError). Any
+  other error, such as a reverse proxy's 502 while the service restarts, is
+  never swapped into the card or grid it was aimed at; static/app.js reports
+  it in #notice.
 
   static/app.js is not deferred: it only adds listeners on the document, and
   the one for broken feed icons must be in place before any image can fail.
@@ -82,6 +84,7 @@
 {{- else if eq . "plus"}}<path d="M12 5v14M5 12h14"/>
 {{- else if eq . "warn"}}<path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.1"/>
 {{- else if eq . "more"}}<circle cx="12" cy="5.5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="18.5" r="1.2"/>
+{{- else if eq . "digest"}}<path d="M4.5 5.5h12v13h-10a2 2 0 0 1-2-2z"/><path d="M16.5 9h3v7.5a2 2 0 0 1-4 0"/><path d="M7.5 9h6M7.5 12.5h6M7.5 16h3.5"/>
 {{- else if eq . "tag"}}<path d="M3.5 12V3.5H12l8.5 8.5-8.5 8.5z"/><circle cx="8" cy="8" r="1.3"/>
 {{- else if eq . "refresh"}}<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v5h-5"/>
 {{- else if eq . "chevron"}}<path d="m9.5 6 6 6-6 6"/>

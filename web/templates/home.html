@@ -10,7 +10,7 @@
       <h1 class="page-title">{{.Title}}</h1>
       {{if .Subtitle}}<p class="topbar-sub">{{.Subtitle}}</p>{{end}}
     </div>
-    {{if or .HasFeeds .IsFolder .IsTag}}
+    {{if or .HasFeeds .IsFolder .IsTag .IsDigest}}
     <div class="toolbar">
       {{if .HasFeeds}}
       {{if .ShowFilter}}
@@ -38,7 +38,8 @@
       </form>
       {{if .IsFeed}}<a class="btn" href="{{.SettingsHref}}">Feed settings</a>{{end}}
       {{end}}
-      {{/* Folder and tag actions do not depend on having feeds. */}}
+      {{/* Folder, tag and digest actions do not depend on having feeds. */}}
+      {{if .IsDigest}}<a class="btn" href="{{.SettingsHref}}">Digest settings</a>{{end}}
       {{if .IsFolder}}
       <details class="popover">
         <summary class="btn">Rename</summary>

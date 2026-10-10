@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -175,8 +176,40 @@ func TestRun_ServesUntilCancelledThenShutsDownCleanly(t *testing.T) {
 	if !strings.Contains(logs.String(), "feedreader stopped") {
 		t.Errorf("no clean-stop log line:\n%s", logs.String())
 	}
+	// The startup line names the time zone of digest ingestion times.
+	if want := "time_zone=" + strconv.Quote(timeZone(time.Now())); !strings.Contains(logs.String(), want) {
+		t.Errorf("no %s in the startup log:\n%s", want, logs.String())
+	}
 	if _, err := os.Stat(filepath.Join(dataDir, "feedreader.db")); err != nil {
 		t.Errorf("database not created in the data directory: %v", err)
+	}
+}
+
+// TestTimeZone_NamesTheZoneOfDigestTimes: the startup log names the zone
+// TZ selects, with its abbreviation and UTC offset at the time; zones come
+// from the embedded database (time/tzdata) where the host has none.
+func TestTimeZone_NamesTheZoneOfDigestTimes(t *testing.T) {
+	rome, err := time.LoadLocation("Europe/Rome")
+	if err != nil {
+		t.Fatal(err)
+	}
+	summer := time.Date(2026, time.July, 1, 12, 0, 0, 0, rome)
+	winter := time.Date(2026, time.January, 1, 12, 0, 0, 0, rome)
+	for _, tc := range []struct {
+		now  time.Time
+		want string
+	}{
+		{summer, "Europe/Rome (CEST, UTC+02:00)"},
+		{winter, "Europe/Rome (CET, UTC+01:00)"},
+		{summer.UTC(), "UTC (UTC, UTC+00:00)"},
+	} {
+		if got := timeZone(tc.now); got != tc.want {
+			t.Errorf("timeZone(%s) = %q, want %q", tc.now, got, tc.want)
+		}
+	}
+	// The process's own zone is the system's when TZ is unset.
+	if now := time.Now(); now.Location().String() == "Local" && !strings.HasPrefix(timeZone(now), "system (") {
+		t.Errorf("timeZone of the system zone = %q, want it named system", timeZone(now))
 	}
 }
 

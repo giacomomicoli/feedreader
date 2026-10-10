@@ -29,7 +29,7 @@ func parseScope(v url.Values) (store.Scope, string, error) {
 	}
 	sc := store.Scope{Kind: kind}
 	switch kind {
-	case store.ScopeFolder, store.ScopeFeed, store.ScopeTag:
+	case store.ScopeFolder, store.ScopeFeed, store.ScopeTag, store.ScopeDigest:
 		id, err := parseID(v.Get("id"))
 		if err != nil {
 			return store.Scope{}, "", fmt.Errorf("%w: %s needs a valid id", errBadScope, kind)
@@ -60,9 +60,14 @@ func parseID(s string) (int64, error) {
 	return id, nil
 }
 
-// scopeHasID reports whether the scope kind refers to a folder, feed or tag.
+// scopeHasID reports whether the scope kind refers to a folder, feed, tag
+// or digest.
 func scopeHasID(k store.ScopeKind) bool {
-	return k == store.ScopeFolder || k == store.ScopeFeed || k == store.ScopeTag
+	switch k {
+	case store.ScopeFolder, store.ScopeFeed, store.ScopeTag, store.ScopeDigest:
+		return true
+	}
+	return false
 }
 
 // scopeParams returns the query string (without "?") selecting scope and

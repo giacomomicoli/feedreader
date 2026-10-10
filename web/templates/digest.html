@@ -1,0 +1,103 @@
+{{/* Digest settings page: name, daily ingestion time, sources, delete. */}}
+{{define "page-digest"}}
+<div class="page page-narrow">
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1 class="page-title">{{.Name}}</h1>
+      <p class="topbar-sub">Digest settings</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn" href="{{.ScopeHref}}">View entries</a>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>Name</h2>
+    <form class="stack" method="post" action="/digests/{{.ID}}/rename" hx-post="/digests/{{.ID}}/rename" hx-target="#err-digest-rename" hx-swap="innerHTML">
+      <label for="digest-name">Digest name</label>
+      <div class="input-row">
+        <input id="digest-name" name="name" type="text" value="{{.Name}}" required maxlength="{{maxName}}" autocomplete="off">
+        <button class="btn" type="submit">Rename</button>
+      </div>
+      <p class="form-error" id="err-digest-rename" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Daily ingestion</h2>
+    <form class="stack" method="post" action="/digests/{{.ID}}/schedule" hx-post="/digests/{{.ID}}/schedule" hx-target="#err-schedule" hx-swap="innerHTML">
+      <label for="digest-ingest">Fetch its sources every day at</label>
+      <div class="input-row input-row-time">
+        <input id="digest-ingest" name="ingest" type="time" value="{{.IngestValue}}" aria-describedby="ingest-help">
+        <button class="btn" type="submit">Save</button>
+      </div>
+      <p class="field-note" id="ingest-help">Server time ({{.Zone}}). The sources are fetched then on top of their regular schedule, so the digest is ready by that time every day. Leave it empty for no fixed time.</p>
+      <p class="form-error" id="err-schedule" aria-live="polite"></p>
+    </form>
+    {{if .IngestValue}}
+    <dl class="facts facts-spaced">
+      <dt>Next ingestion</dt>
+      <dd>{{.NextIngest}} <span class="muted">({{.NextIngestRel}})</span></dd>
+    </dl>
+    <p class="field-note">{{.FetchSummary}}</p>
+    <form class="actions" method="post" action="/digests/{{.ID}}/schedule" hx-post="/digests/{{.ID}}/schedule" hx-target="#err-schedule" hx-swap="innerHTML">
+      <input type="hidden" name="ingest" value="">
+      <button class="btn btn-quiet" type="submit">Remove the fixed time</button>
+    </form>
+    {{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Sources</h2>
+    {{template "digest-sources" .}}
+  </section>
+
+  <section class="panel panel-danger">
+    <h2>Delete digest</h2>
+    <div id="digest-delete-panel">
+      <p>Removes the digest only: its folders, sources, tags and their entries stay.</p>
+      <a class="btn btn-quiet-danger" href="/digests/{{.ID}}/delete" hx-get="/digests/{{.ID}}/delete" hx-target="#digest-delete-panel" hx-swap="innerHTML">Delete digest…</a>
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{/*
+  The sources form. "offered" identifies the folders, sources and tags it
+  lists: a save after they changed is answered with 409 and this form,
+  rendered again in its place (HX-Retarget #digest-sources).
+*/}}
+{{define "digest-sources"}}
+<form id="digest-sources" class="stack" method="post" action="/digests/{{.ID}}/sources" hx-post="/digests/{{.ID}}/sources" hx-target="#err-sources" hx-swap="innerHTML">
+  <input type="hidden" name="offered" value="{{.Offered}}">
+  <fieldset class="source-group">
+    <legend>Folders</legend>
+    <p class="field-note">Every source in the folder, including those added to it later.</p>
+    {{range .Folders}}{{template "source-option" .}}{{else}}<p class="muted">No folders yet.</p>{{end}}
+  </fieldset>
+  <fieldset class="source-group">
+    <legend>Sources</legend>
+    {{range .Feeds}}{{template "source-option" .}}{{else}}<p class="muted">No sources yet. <a href="/add">Add a source</a>.</p>{{end}}
+  </fieldset>
+  <fieldset class="source-group">
+    <legend>Tags</legend>
+    <p class="field-note">Entries carrying the tag, whatever their source.</p>
+    {{range .Tags}}{{template "source-option" .}}{{else}}<p class="muted">No tags yet.</p>{{end}}
+  </fieldset>
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Save sources</button>
+  </div>
+  <p class="form-error" id="err-sources" aria-live="polite">{{.SourcesError}}</p>
+</form>
+{{end}}
+
+{{/* One checkbox of the sources form. */}}
+{{define "source-option"}}
+<label class="source-option" for="src-{{.Field}}-{{.ID}}">
+  <input id="src-{{.Field}}-{{.ID}}" type="checkbox" name="{{.Field}}" value="{{.ID}}"{{if .Checked}} checked{{end}}>
+  {{with .Avatar}}{{template "avatar" .}}{{end}}
+  <span class="source-label">{{.Label}}</span>
+  {{if .Warn}}<span class="feed-warn" title="{{if .LastError}}{{.LastError}}{{else}}Fetching keeps failing{{end}}">{{template "icon" "warn"}}<span class="sr-only">Fetching fails: {{.LastError}}</span></span>{{end}}
+  {{if .Detail}}<span class="source-detail">{{.Detail}}</span>{{end}}
+</label>
+{{end}}

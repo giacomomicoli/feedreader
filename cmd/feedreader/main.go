@@ -12,6 +12,11 @@
 // fetches are drained (each bounded by a timeout), then the database is
 // closed. A second signal during the drain terminates the process
 // immediately.
+//
+// Digest ingestion times, and the times the UI shows, are in the time zone
+// named by the TZ environment variable, else the system's. The binary embeds
+// the time zone database (time/tzdata), so TZ also works on hosts that have
+// none; the startup log names the zone in use.
 package main
 
 import (
@@ -27,6 +32,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	// The time zone database, for TZ on hosts without one: a CGO-free
+	// static binary has nothing else to read it from there, and an unknown
+	// zone silently falls back to UTC.
+	_ "time/tzdata"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/fetch"
@@ -202,7 +211,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) (err error)
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
 	log.Info("feedreader started", "version", config.Version, "listen", "http://"+ln.Addr().String(),
-		"db", cfg.DBPath())
+		"db", cfg.DBPath(), "time_zone", timeZone(time.Now()))
 
 	select {
 	case <-ctx.Done():
@@ -216,6 +225,19 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) (err error)
 		log.Info("feedreader stopped")
 	}
 	return err
+}
+
+// timeZone names the time zone of now, which the startup log shows: that of
+// digest ingestion times. It is the zone TZ names, "system" for the
+// system's (TZ unset), or UTC, also when TZ names a zone that does not
+// exist; with its abbreviation and offset from UTC at now.
+func timeZone(now time.Time) string {
+	name := now.Location().String()
+	if name == "Local" {
+		name = "system"
+	}
+	abbr, _ := now.Zone()
+	return fmt.Sprintf("%s (%s, UTC%s)", name, abbr, now.Format("-07:00"))
 }
 
 // newHTTPServer returns the server with its timeouts and header limit.
