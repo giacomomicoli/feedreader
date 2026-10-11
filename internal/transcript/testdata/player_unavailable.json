@@ -1,0 +1,36 @@
+{
+ "responseContext": {},
+ "playabilityStatus": {
+  "status": "ERROR",
+  "reason": "This video is unavailable",
+  "errorScreen": {
+   "playerErrorMessageRenderer": {
+    "reason": {
+     "runs": [
+      {
+       "text": "This video is unavailable"
+      }
+     ]
+    },
+    "subreason": {
+     "runs": [
+      {
+       "text": "Error code: 0"
+      },
+      {
+       "text": "\n"
+      },
+      {
+       "text": "<a href='javascript:alert(1)'>synthetic link</a>"
+      }
+     ]
+    },
+    "icon": {
+     "iconType": "ERROR_OUTLINE"
+    }
+   }
+  },
+  "contextParams": "synthetic"
+ },
+ "trackingParams": "synthetic"
+}

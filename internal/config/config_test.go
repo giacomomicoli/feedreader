@@ -44,7 +44,7 @@ func isolateEnv(t *testing.T) {
 
 func TestLoadFileThenEnv(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env")
-	content := "# comment\nFR_LISTEN=0.0.0.0:9000\nFR_POLL_INTERVAL=\"2h\"\nFR_POLL_INTERVAL_YOUTUBE=30m\nFR_LOG_LEVEL=debug\n"
+	content := "# comment\nFR_LISTEN=0.0.0.0:9000\nFR_POLL_INTERVAL=\"2h\"\nFR_POLL_INTERVAL_YOUTUBE=30m\nFR_LOG_LEVEL=debug\nFR_TRANSCRIPTS=false\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +66,9 @@ func TestLoadFileThenEnv(t *testing.T) {
 	if c.LogLevel != slog.LevelDebug {
 		t.Errorf("log level: got %s", c.LogLevel)
 	}
+	if c.Transcripts {
+		t.Errorf("FR_TRANSCRIPTS=false in the file: transcripts allowed")
+	}
 }
 
 func TestLoadRejectsBadValues(t *testing.T) {
@@ -78,6 +81,7 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		{"FR_FETCH_WORKERS": "99999999999"},
 		{"FR_FETCH_MAX_BODY": "-1"},
 		{"FR_LOG_LEVEL": "loud"},
+		{"FR_TRANSCRIPTS": "maybe"},
 	} {
 		if _, err := fromMap(m); err == nil {
 			t.Errorf("expected error for %v", m)
@@ -108,6 +112,42 @@ func TestPollIntervalYouTube(t *testing.T) {
 	}
 	if c.PollIntervalYouTube != DefaultYouTubePollInterval {
 		t.Errorf("FR_POLL_INTERVAL changed the YouTube interval to %s", c.PollIntervalYouTube)
+	}
+}
+
+// TestTranscripts: FR_TRANSCRIPTS, the server's kill switch, allows
+// transcripts unless set to a boolean that strconv.ParseBool accepts as
+// false (the UI's global setting still starts off); anything else is a
+// configuration error naming the variable, not a silent default.
+func TestTranscripts(t *testing.T) {
+	c, err := fromMap(map[string]string{})
+	if err != nil || !c.Transcripts {
+		t.Fatalf("default: Transcripts = %v, %v; want allowed", c.Transcripts, err)
+	}
+	for v, want := range map[string]bool{"true": true, "1": true, "TRUE": true, "false": false, "0": false} {
+		c, err := fromMap(map[string]string{"FR_TRANSCRIPTS": v})
+		if err != nil || c.Transcripts != want {
+			t.Errorf("FR_TRANSCRIPTS=%s: Transcripts = %v, %v; want %v", v, c.Transcripts, err, want)
+		}
+	}
+	for _, v := range []string{"yes", "on", "enabled", " true"} {
+		if _, err := fromMap(map[string]string{"FR_TRANSCRIPTS": v}); err == nil ||
+			!strings.Contains(err.Error(), "FR_TRANSCRIPTS") {
+			t.Errorf("FR_TRANSCRIPTS=%q: err = %v, want an error naming the variable", v, err)
+		}
+	}
+	// The pacing constants describe a slow, bounded queue.
+	if TranscriptDelay <= 0 || TranscriptBlockedPause <= TranscriptDelay || TranscriptMaxAttempts < 1 {
+		t.Errorf("TranscriptDelay %s, TranscriptBlockedPause %s, TranscriptMaxAttempts %d",
+			TranscriptDelay, TranscriptBlockedPause, TranscriptMaxAttempts)
+	}
+	// Retries and rechecks are hours apart, within the backoff cap, and a
+	// video that has not aired is checked a bounded number of times.
+	if TranscriptRetryDelay <= TranscriptDelay || TranscriptRetryDelay > MaxBackoff ||
+		TranscriptRecheckDelay <= TranscriptDelay || TranscriptRecheckDelay > MaxBackoff ||
+		TranscriptMaxQueued < TranscriptRecheckDelay {
+		t.Errorf("TranscriptRetryDelay %s, TranscriptRecheckDelay %s, TranscriptMaxQueued %s",
+			TranscriptRetryDelay, TranscriptRecheckDelay, TranscriptMaxQueued)
 	}
 }
 

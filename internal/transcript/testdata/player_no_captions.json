@@ -1,0 +1,11 @@
+{
+ "playabilityStatus": {
+  "status": "OK",
+  "playableInEmbed": true
+ },
+ "videoDetails": {
+  "videoId": "vid00000001",
+  "title": "Synthetic video",
+  "lengthSeconds": "30"
+ }
+}

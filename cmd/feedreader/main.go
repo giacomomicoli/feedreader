@@ -9,9 +9,9 @@
 // KEY=VALUE lines in the -config file; the environment wins. See .env.example.
 //
 // SIGINT or SIGTERM stops the process gracefully: in-flight HTTP requests and
-// fetches are drained (each bounded by a timeout), then the database is
-// closed. A second signal during the drain terminates the process
-// immediately.
+// fetches (feeds, and video transcripts) are drained (each bounded by a
+// timeout), then the database is closed. A second signal during the drain
+// terminates the process immediately.
 //
 // Digest ingestion times, and the times the UI shows, are in the time zone
 // named by the TZ environment variable, else the system's. The binary embeds
@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 	// The time zone database, for TZ on hosts without one: a CGO-free
@@ -42,6 +43,7 @@ import (
 	"github.com/giacomomicoli/feedreader/internal/resolve"
 	"github.com/giacomomicoli/feedreader/internal/sched"
 	"github.com/giacomomicoli/feedreader/internal/store"
+	"github.com/giacomomicoli/feedreader/internal/transcript"
 	"github.com/giacomomicoli/feedreader/internal/web"
 )
 
@@ -200,18 +202,12 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) (err error)
 	// requests still in flight can trigger refreshes.
 	schedCtx, stopSched := context.WithCancel(context.WithoutCancel(ctx))
 	defer stopSched()
-	schedDone := make(chan struct{})
-	go func() {
-		defer close(schedDone)
-		if err := scheduler.Run(schedCtx); err != nil {
-			log.Error("scheduler failed", "err", err)
-		}
-	}()
+	schedDone := runBackground(schedCtx, scheduler, transcript.New(fetcher), log)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
 	log.Info("feedreader started", "version", config.Version, "listen", "http://"+ln.Addr().String(),
-		"db", cfg.DBPath(), "time_zone", timeZone(time.Now()))
+		"db", cfg.DBPath(), "time_zone", timeZone(time.Now()), "transcripts", cfg.Transcripts)
 
 	select {
 	case <-ctx.Done():
@@ -238,6 +234,32 @@ func timeZone(now time.Time) string {
 	}
 	abbr, _ := now.Zone()
 	return fmt.Sprintf("%s (%s, UTC%s)", name, abbr, now.Format("-07:00"))
+}
+
+// runBackground runs the scheduler and its transcript worker (fetching
+// through tr) until ctx is done. The worker always runs, so the UI's switch
+// can turn transcripts on without a restart; it makes no request while any
+// switch is off (FR_TRANSCRIPTS, cfg.Transcripts, is one). The returned
+// channel is closed once both have returned, so shutdown waits for both
+// before the database is closed.
+func runBackground(ctx context.Context, scheduler *sched.Scheduler, tr sched.Transcriber, log *slog.Logger) <-chan struct{} {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		if err := scheduler.Run(ctx); err != nil {
+			log.Error("scheduler failed", "err", err)
+		}
+	})
+	wg.Go(func() {
+		if err := scheduler.RunTranscripts(ctx, tr); err != nil {
+			log.Error("transcript worker failed", "err", err)
+		}
+	})
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
 }
 
 // newHTTPServer returns the server with its timeouts and header limit.

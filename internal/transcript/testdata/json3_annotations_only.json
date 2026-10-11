@@ -1,0 +1,64 @@
+{
+ "wireMagic": "pb3",
+ "pens": [
+  {}
+ ],
+ "wsWinStyles": [
+  {}
+ ],
+ "wpWinPositions": [
+  {}
+ ],
+ "events": [
+  {
+   "tStartMs": 0,
+   "dDurationMs": 30000,
+   "id": 1,
+   "wpWinPosId": 1,
+   "wsWinStyleId": 1
+  },
+  {
+   "tStartMs": 2060,
+   "dDurationMs": 23920,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "[Music]",
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 2810,
+   "dDurationMs": 23170,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 2820,
+   "dDurationMs": 5000,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "[Applause]",
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 9000,
+   "dDurationMs": 2000,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "♪ ♪"
+    }
+   ]
+  }
+ ]
+}

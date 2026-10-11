@@ -1,0 +1,13 @@
+{
+ "playabilityStatus": {
+  "status": "LIVE_STREAM_OFFLINE",
+  "reason": "Premieres in 2 hours"
+ },
+ "videoDetails": {
+  "videoId": "vid00000001",
+  "title": "Synthetic video",
+  "lengthSeconds": "30",
+  "isUpcoming": true,
+  "isLiveContent": true
+ }
+}

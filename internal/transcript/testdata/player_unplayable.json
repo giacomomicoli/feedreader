@@ -1,0 +1,17 @@
+{
+ "playabilityStatus": {
+  "status": "UNPLAYABLE",
+  "reason": "This video is not available in your country",
+  "errorScreen": {
+   "playerErrorMessageRenderer": {
+    "subreason": {
+     "runs": [
+      {
+       "text": "<script>alert(1)</script>"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

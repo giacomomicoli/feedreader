@@ -6,6 +6,8 @@
 // The add flow's fetch happens immediately, so it does not queue
 // behind the polling pool: it has its own addFetchSlots, and the scheduler
 // never runs more than cfg.FetchWorkers + addFetchSlots fetches at once.
+// With video transcripts on (cfg.Transcripts), RunTranscripts adds at most
+// one more: cfg.FetchWorkers + addFetchSlots + 1.
 package sched
 
 import (
@@ -126,6 +128,17 @@ type Scheduler struct {
 	// for an avatar in this run (see backfillAvatar).
 	avatarMu    sync.Mutex
 	avatarTried map[string]struct{}
+
+	// Video transcripts (see RunTranscripts). transcriptWake (capacity 1)
+	// tells the worker that a poll queued videos. The pauses, the sleep and
+	// the timer the worker waits on until a queued video falls due are
+	// fields so that tests can replace them.
+	transcribing           atomic.Bool
+	transcriptWake         chan struct{}
+	transcriptDelay        time.Duration
+	transcriptBlockedPause time.Duration
+	sleep                  func(ctx context.Context, d time.Duration)
+	transcriptTimer        func(d time.Duration) (c <-chan time.Time, stop func() bool)
 }
 
 // New creates a scheduler. It makes no HTTP request until Run is called and
@@ -158,6 +171,12 @@ func New(st store.Store, f Fetcher, cfg config.Config, log *slog.Logger) *Schedu
 		unhold:      make(map[int64]struct{}),
 		manual:      make(map[int64]manualRefresh),
 		avatarTried: make(map[string]struct{}),
+
+		transcriptWake:         make(chan struct{}, 1),
+		transcriptDelay:        config.TranscriptDelay,
+		transcriptBlockedPause: config.TranscriptBlockedPause,
+		sleep:                  sleepCtx,
+		transcriptTimer:        newTimer,
 	}
 }
 

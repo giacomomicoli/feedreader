@@ -99,9 +99,52 @@ const (
 	// in the card grid (the title's tooltip).
 	SummaryMaxChars = 300
 	// SummaryFullMaxChars bounds the visible text, line breaks included, of
-	// the full summary in the entry dialog: YouTube's limit for a video
+	// the full summary in the entry drawer: YouTube's limit for a video
 	// description, far more than an article's summary needs.
 	SummaryFullMaxChars = 5000
+	// TranscriptMaxRunes bounds the stored text of a video transcript:
+	// about three hours of speech; a longer one is cut.
+	TranscriptMaxRunes = 200_000
+)
+
+// Transcripts. YouTube has no public API for them: they
+// are read the way its Android app does, which works from a home connection
+// at a low rate and gets refused when requests come too fast. So the
+// transcripts of new videos are fetched one at a time, slowly, and every
+// pause errs long.
+const (
+	// TranscriptDelay is the pause between two transcript requests.
+	TranscriptDelay = 10 * time.Second
+	// TranscriptBlockedPause is the pause after YouTube refused a request
+	// (rate limit, bot check), or the refusal's Retry-After when longer, up
+	// to MaxBackoff. The video stays queued and the refusal does not count
+	// as one of its attempts. It is also the pause after a
+	// transcript could not be saved, so a database that cannot be written
+	// does not turn into a stream of requests for the same video.
+	TranscriptBlockedPause = 1 * time.Hour
+	// TranscriptMaxAttempts is how many times a video's transcript is
+	// requested when the requests fail for other reasons (network, an
+	// answer whose format changed, a video YouTube does not play) before
+	// the video is given up on.
+	TranscriptMaxAttempts = 3
+	// TranscriptRetryDelay is how long a video waits after its first failed
+	// attempt, doubled after each further one and capped at MaxBackoff: the
+	// attempts are spread over hours, so an outage of the home connection
+	// or of YouTube does not use them all up. The other queued videos are
+	// fetched meanwhile.
+	TranscriptRetryDelay = 2 * time.Hour
+	// TranscriptRecheckDelay is how long a video waits before it is checked
+	// again when it has not aired yet (a live stream on air, an upcoming
+	// premiere or stream), or when its first check found no captions:
+	// YouTube makes the automatic captions of a new upload, or of a stream
+	// that has just ended, some time after it is published. A second check
+	// without captions is final.
+	TranscriptRecheckDelay = 6 * time.Hour
+	// TranscriptMaxQueued is how long after it was queued a video
+	// that has not aired yet is still checked again; it is then given up
+	// on, so a stream announced for months, or one that never ends, is not
+	// checked forever.
+	TranscriptMaxQueued = 7 * 24 * time.Hour
 )
 
 // Config is the runtime configuration.
@@ -117,6 +160,13 @@ type Config struct {
 	// AllowedHosts are extra host names the UI answers to (FR_ALLOWED_HOSTS,
 	// comma-separated), e.g. the reverse proxy's site name.
 	AllowedHosts []string
+	// Transcripts allows fetching the transcripts of YouTube videos
+	// (FR_TRANSCRIPTS, true by default): the server's kill switch. Set to
+	// false, no transcript is ever requested and the UI cannot turn them
+	// on. Allowed, they are fetched only while the UI's global setting
+	// (off until turned on) and the source's own switch are on too. See
+	// the Transcripts constants.
+	Transcripts bool
 }
 
 // DefaultUserAgent returns "<app-name>/<version> (+<repo-url>)".
@@ -135,6 +185,7 @@ func Default() Config {
 		MaxBodyBytes:        DefaultMaxBodyBytes,
 		UserAgent:           DefaultUserAgent(),
 		LogLevel:            slog.LevelInfo,
+		Transcripts:         true,
 	}
 }
 
@@ -199,6 +250,14 @@ func fromMap(vals map[string]string) (Config, error) {
 	if v := vals["FR_LOG_LEVEL"]; v != "" {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {
 			errs = append(errs, fmt.Errorf("FR_LOG_LEVEL: %w", err))
+		}
+	}
+	if v := vals["FR_TRANSCRIPTS"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("FR_TRANSCRIPTS: must be true or false"))
+		} else {
+			c.Transcripts = b
 		}
 	}
 	for h := range strings.SplitSeq(vals["FR_ALLOWED_HOSTS"], ",") {

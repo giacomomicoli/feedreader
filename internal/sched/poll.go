@@ -29,7 +29,9 @@ var errNoResult = errors.New("fetch returned no response")
 //   - 304: last fetch time, error count reset, next poll in one interval
 //     (raised by the <ttl> stored from the last document and max-age);
 //   - 200: the document is parsed and its entries upserted, new ones
-//     unread; validators and feed metadata are refreshed;
+//     unread; validators and feed metadata are refreshed. With transcripts
+//     on, the new entries of a YouTube feed have their transcripts queued
+//     and RunTranscripts is woken (see RunTranscripts);
 //   - after a stored 304 or 200, a YouTube channel feed that still has no
 //     icon gets its channel's avatar (see backfillAvatar);
 //   - 301/308 ending in a 304 or a parseable feed: the stored URL follows
@@ -121,6 +123,10 @@ func (s *Scheduler) pollWith(ctx context.Context, f store.Feed, manual *manualRe
 		f.URL = s.followPermanentRedirect(ctx, f, res.PermanentURL)
 	}
 	regular := fetchedAt.Add(withHints(base, doc.TTL, res.MaxAge))
+	// A pending subscription's first success is stored as an initial add,
+	// which never queues transcripts; the store checks that too, in the
+	// write's transaction.
+	queueTranscripts := s.cfg.Transcripts && f.Kind == store.KindYouTube && !f.InitialPending
 	var inserted int
 	next, scheduled, err := s.storeOutcome(ctx, f, started, regular, func(scheduled time.Time) (err error) {
 		inserted, err = s.st.RecordFetchSuccess(ctx, store.FetchSuccess{
@@ -135,7 +141,8 @@ func (s *Scheduler) pollWith(ctx context.Context, f store.Feed, manual *manualRe
 			OriginalTitle: doc.Title,
 			Entries:       newEntries(doc.Entries, fetchedAt),
 			// Applied only while the feed is a pending subscription.
-			InitialUnread: config.InitialUnread,
+			InitialUnread:    config.InitialUnread,
+			QueueTranscripts: queueTranscripts,
 		})
 		return err
 	})
@@ -147,6 +154,9 @@ func (s *Scheduler) pollWith(ctx context.Context, f store.Feed, manual *manualRe
 		return s.recordFailure(ctx, f, manual, started, fetchedAt, base, fmt.Errorf("could not save entries: %w", err))
 	}
 	s.logPolled(f, res.StatusCode, inserted, took, scheduled)
+	if queueTranscripts && inserted > 0 {
+		s.signalTranscripts()
+	}
 	if doc.IconURL == "" {
 		s.backfillAvatar(ctx, f)
 	}

@@ -1,0 +1,35 @@
+{
+ "playabilityStatus": {
+  "status": "OK",
+  "playableInEmbed": true
+ },
+ "videoDetails": {
+  "videoId": "vid00000001",
+  "title": "Synthetic video",
+  "lengthSeconds": "30"
+ },
+ "captions": {
+  "playerCaptionsTracklistRenderer": {
+   "captionTracks": [
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=vid00000001&ei=synthetic&caps=asr&opi=1&exp=xpe&xoaf=5&xowf=1&hl=en&ip=0.0.0.0&ipbits=0&expire=9999999999&sparams=ip,ipbits,expire,v,ei,caps,opi,exp,xoaf&signature=AB12.CD34&key=yt8&lang=en",
+     "vssId": ".en",
+     "languageCode": "en",
+     "name": {
+      "simpleText": "English"
+     }
+    }
+   ],
+   "audioTracks": [
+    {
+     "captionTrackIndices": [
+      0
+     ],
+     "defaultCaptionTrackIndex": 0,
+     "audioTrackId": "en.4"
+    }
+   ],
+   "defaultAudioTrackIndex": 0
+  }
+ }
+}

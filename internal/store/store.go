@@ -136,6 +136,9 @@ type EntryView struct {
 	FeedKind    Kind
 	FeedIconURL string
 	Tags        []Tag
+	// HasTranscript is set when the transcript of the entry's video was
+	// fetched (GetTranscript returns it).
+	HasTranscript bool
 }
 
 // Tag is a free-text label; names are unique case-insensitively for all of
@@ -201,6 +204,154 @@ type FetchSuccess struct {
 	// the others are stored read (read_at = FetchedAt), and the flag is
 	// cleared. It is ignored for a feed that is not pending.
 	InitialUnread int
+
+	// QueueTranscripts queues the transcript of every entry this fetch
+	// inserts, due at FetchedAt (see NextTranscript), when the global
+	// transcript setting and the feed's own switch are on as the
+	// transaction reads them: set for the polls of YouTube feeds when
+	// FR_TRANSCRIPTS is on. CreateFeed, the initial add, never queues.
+	QueueTranscripts bool
+}
+
+// Transcript is the text of a video's caption track (FR_TRANSCRIPTS).
+type Transcript struct {
+	Lang      string // BCP 47 code of the caption track; "" = unknown
+	Generated bool   // YouTube's automatic speech recognition, not authored captions
+	Text      string // plain text, never HTML
+}
+
+// TranscriptJob is an entry whose transcript is queued (NextTranscript).
+type TranscriptJob struct {
+	EntryID  int64
+	URL      string // the entry's URL: the video's watch page
+	Attempts int    // failed attempts so far (TranscriptRetry)
+	// Rechecked is set once a check found no captions and queued the entry
+	// for one more (TranscriptRecheck).
+	Rechecked bool
+	// QueuedAt is when a poll queued it, or when an outcome kept it queued
+	// if that is earlier: the clock was set back since (RecordTranscript).
+	QueuedAt time.Time
+	DueAt    time.Time // when it may be fetched, not before
+	// Refusals is how many requests YouTube refused in a row before this
+	// job was read (TranscriptBlocked); the pause after another refusal
+	// grows with it.
+	Refusals int
+}
+
+// TranscriptOutcome is what one attempt at a queued entry's transcript came
+// to (RecordTranscript).
+type TranscriptOutcome string
+
+const (
+	// TranscriptOK: the transcript was fetched; GetTranscript returns it.
+	TranscriptOK TranscriptOutcome = "ok"
+	// TranscriptNoCaptions: the video has no captions. Final.
+	TranscriptNoCaptions TranscriptOutcome = "no_captions"
+	// TranscriptRetry: the attempt failed. The entry stays queued, with one
+	// more attempt counted, until RetryAt.
+	TranscriptRetry TranscriptOutcome = "retry"
+	// TranscriptDeferred: the attempt told nothing final about the video
+	// (it has not aired yet). The entry stays queued, its attempts
+	// unchanged, until RetryAt.
+	TranscriptDeferred TranscriptOutcome = "deferred"
+	// TranscriptBlocked: YouTube refused the request. The entry stays
+	// queued as with TranscriptDeferred, and no queued entry is due before
+	// RetryAt, the end of the pause that follows (NextTranscript), also
+	// after a restart. The refusal adds to the streak of refusals in a row
+	// (TranscriptJob.Refusals), which is stored too.
+	TranscriptBlocked TranscriptOutcome = "blocked"
+	// TranscriptRecheck: the video had no captions, but YouTube may still
+	// be making them (a new upload, a stream that has just ended). The
+	// entry stays queued, its attempts unchanged, until RetryAt, and is
+	// marked rechecked: its next check without captions is final.
+	TranscriptRecheck TranscriptOutcome = "recheck"
+	// TranscriptFailed: the last attempt failed too; the entry leaves the
+	// queue with one more attempt counted. Final.
+	TranscriptFailed TranscriptOutcome = "failed"
+)
+
+// staysQueued reports whether the entry stays queued after outcome o, due
+// again at TranscriptResult.RetryAt.
+func (o TranscriptOutcome) staysQueued() bool {
+	return o == TranscriptRetry || o == TranscriptDeferred || o == TranscriptBlocked || o == TranscriptRecheck
+}
+
+// TranscriptResult is the outcome RecordTranscript stores.
+type TranscriptResult struct {
+	Outcome    TranscriptOutcome
+	Transcript Transcript // the transcript when Outcome is TranscriptOK
+	// RetryAt is when an entry that stays queued (TranscriptRetry,
+	// TranscriptDeferred, TranscriptBlocked, TranscriptRecheck) falls due
+	// again; required for those outcomes, ignored for the others.
+	RetryAt time.Time
+	// At is when the attempt ended (updated_at), by the caller's clock;
+	// zero means now. An entry that stays queued and was queued after At
+	// (while the clock was ahead) counts as queued at At from then on.
+	At time.Time
+	// Requested is set when the outcome follows a request. Unless YouTube
+	// refused it (TranscriptBlocked, which adds to the streak), it ends the
+	// streak of refusals in a row (TranscriptJob.Refusals). An outcome
+	// reached without a request leaves the streak as it is, and a
+	// TranscriptFailed without one counts no attempt.
+	Requested bool
+	// Reason is why the entry is left as it is, stored with any outcome
+	// but TranscriptOK (which clears it): see TranscriptReason. "" stores
+	// none.
+	Reason TranscriptReason
+}
+
+// TranscriptReason is why the last check of an entry's transcript left it
+// pending or done without a transcript, for the UI to say so.
+type TranscriptReason string
+
+const (
+	ReasonNoCaptions  TranscriptReason = "no_captions" // no captions (yet)
+	ReasonNotReady    TranscriptReason = "not_ready"   // a premiere or live stream that has not aired
+	ReasonRefused     TranscriptReason = "refused"     // YouTube refused the request
+	ReasonError       TranscriptReason = "error"       // a failed attempt (network, format, ...)
+	ReasonUnavailable TranscriptReason = "unavailable" // YouTube does not play the video to this client
+	ReasonTooLarge    TranscriptReason = "too_large"   // an answer over the size caps
+	ReasonNotAVideo   TranscriptReason = "not_a_video" // the entry's URL names no video
+	ReasonQueuedLong  TranscriptReason = "queued_too_long"
+	ReasonExhausted   TranscriptReason = "attempts_exhausted"
+)
+
+// valid reports whether r may be stored ("" stores NULL).
+func (r TranscriptReason) valid() bool {
+	switch r {
+	case "", ReasonNoCaptions, ReasonNotReady, ReasonRefused, ReasonError, ReasonUnavailable,
+		ReasonTooLarge, ReasonNotAVideo, ReasonQueuedLong, ReasonExhausted:
+		return true
+	}
+	return false
+}
+
+// TranscriptStatus is the stored state of an entry's transcript.
+type TranscriptStatus string
+
+const (
+	StatusNone       TranscriptStatus = ""            // never queued
+	StatusPending    TranscriptStatus = "pending"     // queued
+	StatusOK         TranscriptStatus = "ok"          // fetched
+	StatusNoCaptions TranscriptStatus = "no_captions" // checked, no captions
+	StatusFailed     TranscriptStatus = "failed"      // given up on
+)
+
+// TranscriptState is what the UI shows about an entry's transcript
+// (TranscriptStateOf): its stored state, and the pause that delays every
+// queued one.
+type TranscriptState struct {
+	Status    TranscriptStatus
+	Reason    TranscriptReason
+	Attempts  int
+	Rechecked bool
+	Lang      string // of a fetched transcript
+	Generated bool   // of a fetched transcript
+	QueuedAt  time.Time
+	DueAt     time.Time // as stored, before the pause
+	// PausedUntil is the end of the pause after YouTube's last refusal
+	// (zero when none was stored): no queued entry is fetched before it.
+	PausedUntil time.Time
 }
 
 // ScopeKind selects which entries the card grid shows.
@@ -339,7 +490,8 @@ type Store interface {
 	// transaction: error_count = 0, last_error = NULL, last_fetched_at,
 	// next_fetch_at, etag, last_modified, ttl_sec, and non-empty metadata fields.
 	// Entries whose (feed_id, guid) is new are inserted unread, except on a
-	// pending subscription (see FetchSuccess.InitialUnread). Existing ones
+	// pending subscription (see FetchSuccess.InitialUnread); otherwise their
+	// transcripts are queued when r.QueueTranscripts is set. Existing ones
 	// get title, summary_html, url, thumbnail_url and updated_at refreshed;
 	// is_read, is_later, is_favourite, read_at, published_at and fetched_at
 	// are never touched. Returns the number of inserted entries.
@@ -440,6 +592,65 @@ type Store interface {
 	// matches nothing. These are the times at which a feed in that folder
 	// must be fetched besides its regular schedule.
 	IngestMinutes(ctx context.Context, feedID, folderID int64) ([]int, error)
+
+	// --- Transcripts ---
+
+	// NextTranscript returns the queued entry whose transcript is due
+	// first: the one with the earliest DueAt, then the one with fewer
+	// attempts, then the lowest id, with the streak of refusals so far.
+	// Its DueAt may still lie ahead: callers fetch it only once that time
+	// has come. Entries of feeds whose transcript switch is off are
+	// skipped (frozen). ok is false when none is queued.
+	NextTranscript(ctx context.Context) (job TranscriptJob, ok bool, err error)
+	// RecordTranscript stores the outcome of an attempt at a queued entry's
+	// transcript, and its effect on the streak of refusals (see
+	// TranscriptResult.Requested), which it keeps even when the entry is
+	// gone. It returns ErrNotFound when the entry is not queued (it was
+	// deleted meanwhile, or its transcript is done) and ErrInvalid for an
+	// unknown outcome, a TranscriptOK without text, or an outcome that
+	// keeps the entry queued without a RetryAt.
+	RecordTranscript(ctx context.Context, entryID int64, r TranscriptResult) error
+	// GetTranscript returns the entry's transcript, or ErrNotFound unless
+	// one was fetched (TranscriptOK).
+	GetTranscript(ctx context.Context, entryID int64) (Transcript, error)
+	// TranscriptStateOf returns the stored state of the entry's transcript;
+	// Status is StatusNone when it was never queued (whether or not the
+	// entry exists).
+	TranscriptStateOf(ctx context.Context, entryID int64) (TranscriptState, error)
+	// RequestTranscript queues the entry's transcript as of at, due at once
+	// (the user asked for it): a new row, or a done one (no captions,
+	// given up on) queued again from scratch (no attempts, not rechecked,
+	// queued at at); a pending one is made due at at and counts as queued
+	// at at, its attempts kept. The pause after a refusal still applies
+	// (NextTranscript). It returns ErrNotFound when the entry does not exist
+	// and ErrConflict when its transcript was fetched already.
+	RequestTranscript(ctx context.Context, entryID int64, at time.Time) error
+
+	// --- Settings ---
+
+	// TranscriptsSetting returns the global transcript switch: false until
+	// it was turned on.
+	TranscriptsSetting(ctx context.Context) (bool, error)
+	// SetTranscriptsSetting stores the global transcript switch. Turning it
+	// on (from off) restarts the queue age of every pending transcript at
+	// at (they were frozen meanwhile); it never queues anything.
+	SetTranscriptsSetting(ctx context.Context, on bool, at time.Time) error
+	// ServerTranscripts returns the server's transcript switch
+	// (FR_TRANSCRIPTS) as the last RecordServerTranscripts stored it: on
+	// until recorded off.
+	ServerTranscripts(ctx context.Context) (bool, error)
+	// RecordServerTranscripts stores the server's transcript switch, as the
+	// transcript worker finds it when it starts. Recording it on after off
+	// restarts the queue age of every pending transcript at at (they were
+	// frozen meanwhile); it never queues anything.
+	RecordServerTranscripts(ctx context.Context, on bool, at time.Time) error
+	// FeedTranscripts returns the feed's transcript switch (on by default),
+	// or ErrNotFound.
+	FeedTranscripts(ctx context.Context, feedID int64) (bool, error)
+	// SetFeedTranscripts stores the feed's transcript switch. Turning it on
+	// (from off) restarts the queue age of the feed's pending transcripts
+	// at at; it never queues anything. ErrNotFound when the feed is gone.
+	SetFeedTranscripts(ctx context.Context, feedID int64, on bool, at time.Time) error
 
 	// --- Counts ---
 
