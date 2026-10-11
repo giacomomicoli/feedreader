@@ -617,10 +617,10 @@ func (sc *scenario) pollMoved(t *testing.T) {
 	}
 }
 
-// pollFailures: failures are counted, the first one is retried soon and the
-// next ones back off, the sidebar warns after 3 consecutive ones, cached
-// entries stay visible, the feed is never deleted, and a success clears the
-// warning.
+// pollFailures: a failed Refresh is shown but not counted; scheduled
+// failures are counted, the first one is retried soon and the next ones back
+// off, the sidebar warns after 3 consecutive ones, cached entries stay
+// visible, the feed is never deleted, and a success clears the warning.
 func (sc *scenario) pollFailures(t *testing.T) {
 	a, site := sc.a, sc.site
 	warned := func() bool {
@@ -658,9 +658,29 @@ func (sc *scenario) pollFailures(t *testing.T) {
 		return d
 	}
 
+	// A refresh that fails stores the error without counting it.
 	site.setGone(true)
+	sc.refresh(t, "feed", sc.blogID)
+	eventually(t, "the refreshed fetch to be stored", func() bool {
+		f, err := a.st.GetFeed(t.Context(), sc.blogID)
+		return err == nil && strings.Contains(f.LastError, "404")
+	})
+	if f, err := a.st.GetFeed(t.Context(), sc.blogID); err != nil || f.ErrorCount != 0 || f.NextFetchAt.Sub(f.LastFetchedAt) != retryIn(1) {
+		t.Errorf("after a failed refresh: error_count %d, next fetch %s after it, %v; want 0 and %s",
+			f.ErrorCount, f.NextFetchAt.Sub(f.LastFetchedAt), err, retryIn(1))
+	}
+	if warned() {
+		t.Errorf("warning shown after a failed refresh")
+	}
+
+	// Scheduled polls count. The blog is made due as the passing of time
+	// would, and the scheduler woken by a refresh of another feed.
+	waker := sc.wakerFeed(t)
 	for i := 1; i <= config.WarnAfterFailures; i++ {
-		sc.refresh(t, "feed", sc.blogID)
+		if err := a.st.SetNextFetch(t.Context(), sc.blogID, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		sc.refresh(t, "feed", waker)
 		errorCount(i)
 		if f, err := a.st.GetFeed(t.Context(), sc.blogID); err != nil || f.NextFetchAt.Sub(f.LastFetchedAt) != retryIn(i) {
 			t.Errorf("after %d failures: next fetch %s after the last one, %v; want %s",
@@ -689,6 +709,23 @@ func (sc *scenario) pollFailures(t *testing.T) {
 	if err != nil || counts.ByFeed[sc.blogID] != blogUnreadAfterPoll {
 		t.Errorf("unread after failures = %+v, %v; want %d", counts, err, blogUnreadAfterPoll)
 	}
+	if err := a.st.DeleteFeed(t.Context(), waker); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wakerFeed stores a feed without entries, scheduled a day ahead, whose
+// refresh wakes the scheduler without making another feed's fetch manual.
+// Its own fetches fail (the site has no such path) and are not counted.
+func (sc *scenario) wakerFeed(t *testing.T) int64 {
+	t.Helper()
+	now := time.Now()
+	f, err := sc.a.st.CreateFeed(t.Context(), store.NewFeed{Kind: store.KindRSS, URL: sc.site.url("/waker.xml"),
+		Title: "Waker", FetchedAt: now, NextFetchAt: now.Add(config.MaxBackoff)}, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f.ID
 }
 
 // allCards loads a scope page and follows Load more to the end.

@@ -185,6 +185,9 @@ func plural(n int, unit string) string {
 // settings pages.
 const absTimeLayout = "Mon 2 Jan 2006, 15:04 MST"
 
+// clockLayout renders a time of day as "HH:MM".
+const clockLayout = "15:04"
+
 // absTime is the full timestamp shown in tooltips and on the settings page.
 func absTime(t time.Time) string {
 	if t.IsZero() {

@@ -147,6 +147,25 @@ func TestTitleText(t *testing.T) {
 	}
 }
 
+// TestPlainTitle: a title read outside a feed (a page's og:title) is one
+// line of plain text, as bounded as a feed title.
+func TestPlainTitle(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"  Channel \n\t name ", "Channel name"},
+		{"a\x00b\x1bc\u0085d", "a b c d"},
+		{"<script>alert(1)</script> &amp;", "<script>alert(1)</script> &amp;"},
+		{strings.Repeat("x", 10*maxTitleRunes), strings.Repeat("x", maxTitleRunes-1) + "…"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := PlainTitle(c.in)
+		checkEqual(t, fmt.Sprintf("PlainTitle(%.30q)", c.in), got, c.want)
+		if n := utf8.RuneCountInString(got); n > maxTitleRunes {
+			t.Errorf("PlainTitle(%.30q) has %d runes", c.in, n)
+		}
+	}
+}
+
 func TestClipRunesAndUTF8(t *testing.T) {
 	checkEqual(t, "clipRunes fits", clipRunes("abc", 3), "abc")
 	checkEqual(t, "clipRunes cut", clipRunes("abcd", 3), "ab…")

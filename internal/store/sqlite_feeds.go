@@ -22,7 +22,7 @@ func redactURL(raw string) string {
 // feedCols is the column list scanFeed expects, in order.
 const feedCols = `id, kind, url, site_url, title, original_title, icon_url, folder_id,
 	etag, last_modified, last_fetched_at, next_fetch_at, interval_sec, error_count,
-	last_error, created_at, ttl_sec`
+	last_error, created_at, ttl_sec, initial_pending`
 
 // scanFeed reads one row selected with feedCols.
 func scanFeed(r rowScanner) (Feed, error) {
@@ -34,7 +34,8 @@ func scanFeed(r rowScanner) (Feed, error) {
 		next, created                                      int64
 	)
 	err := r.Scan(&f.ID, &kind, &f.URL, &siteURL, &f.Title, &origTitle, &iconURL, &folderID,
-		&etag, &lastMod, &lastFetched, &next, &interval, &f.ErrorCount, &lastEr, &created, &f.TTLSec)
+		&etag, &lastMod, &lastFetched, &next, &interval, &f.ErrorCount, &lastEr, &created, &f.TTLSec,
+		&f.InitialPending)
 	if err != nil {
 		return Feed{}, err
 	}
@@ -112,12 +113,24 @@ func (s *SQLite) GetFeedByURL(ctx context.Context, url string) (Feed, error) {
 // earlier position in entries counts as newer); all other entries are stored
 // read with read_at = f.FetchedAt. Entries sharing a GUID are collapsed (last
 // one wins). Returns ErrConflict if the URL exists, ErrNotFound if FolderID
-// does not exist and ErrInvalid for an unknown kind, an empty URL or an entry
-// without a GUID. An empty Title falls back to OriginalTitle, then to URL
-// (without its credentials).
+// does not exist and ErrInvalid for an unknown kind, an empty URL, an entry
+// without a GUID or a pending subscription with entries. An empty Title falls
+// back to OriginalTitle, then to URL (without its credentials).
+//
+// A pending subscription (f.InitialPending) is stored with the flag set, and
+// a non-empty f.LastError is stored as the feed's first failure (error_count
+// = 1).
 func (s *SQLite) CreateFeed(ctx context.Context, f NewFeed, entries []NewEntry, initialUnread int) (Feed, error) {
 	if err := validateNewFeed(f); err != nil {
 		return Feed{}, fmt.Errorf("store: create feed: %w", err)
+	}
+	if f.InitialPending && len(entries) > 0 {
+		return Feed{}, fmt.Errorf("store: create feed %s: a pending subscription has no entries: %w",
+			redactURL(f.URL), ErrInvalid)
+	}
+	errorCount := 0
+	if f.LastError != "" {
+		errorCount = 1
 	}
 	fetchedAt := f.FetchedAt
 	if fetchedAt.IsZero() {
@@ -134,12 +147,14 @@ func (s *SQLite) CreateFeed(ctx context.Context, f NewFeed, entries []NewEntry, 
 		var id int64
 		err := tx.QueryRowContext(ctx,
 			`INSERT INTO feeds (kind, url, site_url, title, original_title, icon_url, folder_id,
-				etag, last_modified, last_fetched_at, next_fetch_at, created_at, ttl_sec)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				etag, last_modified, last_fetched_at, next_fetch_at, created_at, ttl_sec,
+				initial_pending, error_count, last_error)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 RETURNING id`,
 			string(f.Kind), f.URL, nullStr(f.SiteURL), feedTitle(f), nullStr(f.OriginalTitle),
 			nullStr(f.IconURL), nullID(f.FolderID), nullStr(f.ETag), nullStr(f.LastModified),
 			fetchedAt.Unix(), unixOrZero(f.NextFetchAt), s.now().Unix(), max(f.TTLSec, 0),
+			boolInt(f.InitialPending), errorCount, nullStr(f.LastError),
 		).Scan(&id)
 		if err != nil {
 			return classify(err)

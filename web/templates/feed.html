@@ -57,6 +57,8 @@
   <section class="panel">
     <h2>Fetch status</h2>
     <dl class="facts">
+      {{if .Pending}}<dt>Status</dt>
+      <dd><span class="feed-wait">{{template "icon" "wait"}}</span> {{template "waiting-text"}}</dd>{{end}}
       <dt>Last fetch</dt>
       <dd>{{.LastFetch}}{{if .LastFetchRel}} <span class="muted">({{.LastFetchRel}})</span>{{end}}</dd>
       <dt>Next fetch</dt>

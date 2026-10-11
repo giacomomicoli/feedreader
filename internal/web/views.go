@@ -238,7 +238,9 @@ type feedNav struct {
 	Badge     badgeView
 	Warn      bool
 	LastError string
-	Active    bool
+	// Waiting marks a subscription whose feed has not answered yet.
+	Waiting bool
+	Active  bool
 }
 
 type folderNav struct {
@@ -346,8 +348,9 @@ func buildSidebar(d sidebarData, cur store.Scope) sidebarView {
 			Href:      feedHref(f.ID, ""),
 			Avatar:    newAvatar(f.ID, f.Title, f.IconURL),
 			Badge:     badgeView{ID: feedBadgeID(f.ID), N: d.counts.ByFeed[f.ID]},
-			Warn:      f.ErrorCount >= config.WarnAfterFailures,
+			Warn:      warnFeed(f),
 			LastError: f.LastError,
+			Waiting:   f.InitialPending,
 			Active:    cur.Kind == store.ScopeFeed && cur.ID == f.ID,
 		}
 		if fn.Active {
@@ -402,6 +405,29 @@ func buildCounts(d sidebarData, cur store.Scope) countsView {
 		cv.Badges = append(cv.Badges, badgeView{ID: feedBadgeID(f.ID), N: d.counts.ByFeed[f.ID], OOB: true})
 	}
 	return cv
+}
+
+// warnFeed reports whether the UI flags f as broken: config.WarnAfterFailures
+// failures in a row, unless it is a subscription still waiting for its
+// feed's first answer, which is shown as waiting instead.
+func warnFeed(f store.Feed) bool {
+	return !f.InitialPending && f.ErrorCount >= config.WarnAfterFailures
+}
+
+// waitingText is the status of a subscription whose feed has not answered
+// yet; templates use the "waiting-text" template, which says the same.
+const waitingText = "Waiting for the first fetch"
+
+// pendingEmpty explains the empty grid of a subscription whose feed has not
+// answered yet, with its next try (the feed's next fetch) as a clock time in
+// loc.
+func pendingEmpty(next time.Time, loc *time.Location) (text, hint string) {
+	text = waitingText + "."
+	hint = "Videos will appear when YouTube's feed answers."
+	if !next.IsZero() {
+		hint += " Next try about " + next.In(loc).Format(clockLayout) + "."
+	}
+	return text, hint
 }
 
 // emptyMessage explains an empty grid and points at the next useful step.

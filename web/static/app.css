@@ -213,6 +213,12 @@ summary::-webkit-details-marker { display: none; }
 .feed-warn .icon,
 .nav-item.is-active .feed-warn .icon { width: 16px; height: 16px; color: var(--warn); }
 
+/* A subscription whose feed has not answered yet: waiting, not broken. */
+.feed-wait { display: inline-grid; color: var(--ink-3); }
+.feed-wait .icon,
+.nav-item.is-active .feed-wait .icon { width: 16px; height: 16px; color: var(--ink-3); }
+.facts .feed-wait { vertical-align: text-bottom; }
+
 .sidebar-forms { margin-top: auto; display: grid; gap: 6px; }
 .new-name { display: grid; gap: 6px; }
 .new-name .nav-heading { margin-top: 10px; }
@@ -769,6 +775,7 @@ label { font-size: 14px; font-weight: 600; }
 
 .preview-kind { font-weight: 600; }
 .preview-url { color: var(--ink-2); overflow-wrap: anywhere; }
+.preview-pending { margin: 4px 0 0; }
 
 .direct-feed { padding-top: 18px; border-top: 1px solid var(--line); }
 

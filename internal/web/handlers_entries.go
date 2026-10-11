@@ -22,6 +22,10 @@ type scopeMeta struct {
 	subtitle string
 	// noSources is set for a digest that has no folder, feed or tag yet.
 	noSources bool
+	// pending is set for a subscription whose feed has not answered yet,
+	// whose next try is pendingNext.
+	pending     bool
+	pendingNext time.Time
 }
 
 // loadScope validates that the scope's folder, feed, tag or digest exists
@@ -49,6 +53,7 @@ func (s *server) loadScope(ctx context.Context, sc store.Scope) (scopeMeta, erro
 			return m, fmt.Errorf("get feed %d: %w", sc.ID, err)
 		}
 		m.title, m.subtitle = f.Title, kindLabel(f.Kind)
+		m.pending, m.pendingNext = f.InitialPending, f.NextFetchAt
 	case store.ScopeTag:
 		t, err := s.store.GetTag(ctx, sc.ID)
 		if err != nil {
@@ -162,6 +167,10 @@ func (s *server) buildScopeView(ctx context.Context, m scopeMeta, filter string,
 	if err == nil && m.noSources && len(v.Grid.Cards) == 0 {
 		v.Grid.EmptyText, v.Grid.EmptyLink = "This digest has no sources yet.", ""
 		v.Grid.EmptyHint = "Use Digest settings to pick its folders, sources and tags."
+	}
+	if err == nil && m.pending && len(v.Grid.Cards) == 0 {
+		v.Grid.EmptyText, v.Grid.EmptyHint = pendingEmpty(m.pendingNext, s.loc)
+		v.Grid.EmptyLink = ""
 	}
 	return v, err
 }

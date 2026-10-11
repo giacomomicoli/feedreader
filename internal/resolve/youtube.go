@@ -3,6 +3,7 @@ package resolve
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
+	"github.com/giacomomicoli/feedreader/internal/parse"
 	"github.com/giacomomicoli/feedreader/internal/safeurl"
 )
 
@@ -137,6 +139,12 @@ func playlistFeedURL(id string) string {
 func (r *Resolver) resolveYouTube(ctx context.Context, u *url.URL, ref ytRef) (*Result, error) {
 	switch ref.kind {
 	case ytFeed:
+		// Every spelling of a channel's feed (m., no www, http, extra
+		// parameters) becomes the canonical URL, so one channel is not
+		// subscribed twice under two URLs.
+		if id := channelIDOfFeed(u); id != "" {
+			return single(Candidate{URL: channelFeedURL(id)}), nil
+		}
 		return single(Candidate{URL: u.String()}), nil
 	case ytChannel:
 		return single(Candidate{URL: channelFeedURL(ref.id)}), nil
@@ -180,7 +188,21 @@ func (r *Resolver) channelFromPage(ctx context.Context, page string) (id, avatar
 	return id, avatar, nil
 }
 
-// channelFromHTML extracts the page's own channel ID from, in order of
+// channelPage is what a YouTube channel page tells about its channel.
+type channelPage struct {
+	id     string // the page's own channel ID
+	avatar string // its avatar (see avatarURL), or ""
+	title  string // its name (og:title, see parse.PlainTitle), or ""
+}
+
+// channelFromHTML extracts the page's own channel ID and avatar; see
+// channelPageFromHTML.
+func channelFromHTML(body []byte, pageURL *url.URL) (id, avatar string, ok bool) {
+	cp, ok := channelPageFromHTML(body, pageURL)
+	return cp.id, cp.avatar, ok
+}
+
+// channelPageFromHTML extracts the page's own channel ID from, in order of
 // preference:
 //
 //  1. <link rel="canonical" href="https://www.youtube.com/channel/UC…">
@@ -193,11 +215,14 @@ func (r *Resolver) channelFromPage(ctx context.Context, page string) (id, avatar
 // whole document is scanned because YouTube emits these elements after the
 // head has implicitly ended.
 //
-// The same scan reads the channel's avatar from the page's Open Graph image
-// (<meta property="og:image">), when the page was served by YouTube; see
-// avatarURL. The avatar is best-effort: "" does not make the page unusable.
-func channelFromHTML(body []byte, pageURL *url.URL) (id, avatar string, ok bool) {
-	var canonical, identifier, alternate string
+// The same scan reads, when the page was served by YouTube, the channel's
+// avatar from the page's Open Graph image (<meta property="og:image">; see
+// avatarURL) and its name from the Open Graph title (<meta
+// property="og:title">, reduced to one bounded line of plain text by
+// parse.PlainTitle). Both are best-effort: "" does not make the page
+// unusable, and neither is returned without an ID.
+func channelPageFromHTML(body []byte, pageURL *url.URL) (channelPage, bool) {
+	var canonical, identifier, alternate, avatar, title string
 	ytPage := isYouTubeHost(pageURL)
 	_ = scanTags(bytes.NewReader(body), []string{"link", "meta"}, func(t tag) bool {
 		switch t.name {
@@ -211,25 +236,28 @@ func channelFromHTML(body []byte, pageURL *url.URL) (id, avatar string, ok bool)
 				alternate = channelIDFromFeedURL(t.attrs["href"], pageURL)
 			}
 		case "meta":
+			property := strings.ToLower(trimHTMLSpace(t.attrs["property"]))
 			switch {
 			case identifier == "" && strings.EqualFold(trimHTMLSpace(t.attrs["itemprop"]), "identifier"):
 				if v := trimHTMLSpace(t.attrs["content"]); channelIDPattern.MatchString(v) {
 					identifier = v
 				}
-			case ytPage && avatar == "" && strings.EqualFold(trimHTMLSpace(t.attrs["property"]), "og:image"):
+			case ytPage && avatar == "" && property == "og:image":
 				avatar = avatarURL(t.attrs["content"])
+			case ytPage && title == "" && property == "og:title":
+				title = parse.PlainTitle(t.attrs["content"])
 			}
 		}
-		// The preferred ID source and the avatar end the scan; YouTube
-		// emits the avatar after the canonical link.
-		return canonical == "" || (ytPage && avatar == "")
+		// The preferred ID source, the avatar and the title end the scan;
+		// YouTube emits the Open Graph tags after the canonical link.
+		return canonical == "" || (ytPage && (avatar == "" || title == ""))
 	})
-	for _, id = range []string{canonical, identifier, alternate} {
+	for _, id := range []string{canonical, identifier, alternate} {
 		if id != "" {
-			return id, avatar, true
+			return channelPage{id: id, avatar: avatar, title: title}, true
 		}
 	}
-	return "", "", false
+	return channelPage{}, false
 }
 
 // avatarURL returns the channel avatar named by an og:image content
@@ -328,8 +356,117 @@ func channelIDOfFeed(u *url.URL) string {
 // channel (youtube.com/feeds/videos.xml?channel_id=UC…), as opposed to a
 // playlist's or any other feed.
 func IsChannelFeed(feedURL string) bool {
+	_, ok := ChannelFeedID(feedURL)
+	return ok
+}
+
+// ChannelFeedID returns the channel ID of feedURL when it is the video feed
+// of a YouTube channel (see IsChannelFeed).
+func ChannelFeedID(feedURL string) (string, bool) {
 	u, err := url.Parse(strings.TrimSpace(feedURL))
-	return err == nil && channelIDOfFeed(u) != ""
+	if err != nil {
+		return "", false
+	}
+	id := channelIDOfFeed(u)
+	return id, id != ""
+}
+
+// ChannelFeedURL returns the canonical video feed URL of the YouTube channel
+// id (https://www.youtube.com/feeds/videos.xml?channel_id=UC…), or "" when id
+// is not a channel ID.
+func ChannelFeedURL(id string) string {
+	if !channelIDPattern.MatchString(id) {
+		return ""
+	}
+	return channelFeedURL(id)
+}
+
+// ErrChannelNotConfirmed is returned by ConfirmChannel when YouTube's page of
+// the channel could not be fetched or does not name that channel.
+var ErrChannelNotConfirmed = errors.New("the channel's page on YouTube does not confirm the channel")
+
+// Channel is a YouTube channel as its page describes it.
+type Channel struct {
+	ID      string
+	Title   string // og:title as one bounded line of plain text, or ""
+	IconURL string // avatar (see ChannelAvatar), or ""
+}
+
+// isChannelPage reports whether u, the URL a page was served from, is a
+// channel's own page on YouTube (/@handle, /c/…, /user/… or /channel/UC…).
+// A redirect elsewhere on YouTube (a watch page names its uploader's feed,
+// with the video's title and thumbnail) confirms nothing.
+func isChannelPage(u *url.URL) bool {
+	if !isHTTPURL(u) || !isYouTubeHost(u) {
+		return false
+	}
+	k := classifyYouTube(u).kind
+	return k == ytPage || k == ytChannel
+}
+
+// ChannelFromPage returns the channel that res, the response to a request
+// for requested, confirms as ConfirmChannel would: requested is a channel's
+// own page on YouTube (/@handle, /c/…, /user/… or /channel/UC… of that same
+// channel), it was served from such a page on YouTube (see isChannelPage),
+// and it names its channel. It makes no request, so the add flow can reuse a
+// page it fetched anyway. Any other page (a video page names its channel's
+// feed too) confirms nothing.
+func ChannelFromPage(requested string, res *fetch.Result) (Channel, bool) {
+	if res == nil || res.NotModified || len(res.Body) == 0 {
+		return Channel{}, false
+	}
+	u, err := url.Parse(strings.TrimSpace(requested))
+	if err != nil || !isHTTPURL(u) || !isYouTubeHost(u) {
+		return Channel{}, false
+	}
+	ref := classifyYouTube(u)
+	if ref.kind != ytPage && ref.kind != ytChannel {
+		return Channel{}, false
+	}
+	served := finalURL(res, u)
+	if !isChannelPage(served) {
+		return Channel{}, false
+	}
+	cp, ok := channelPageFromHTML(res.Body, served)
+	if !ok || (ref.kind == ytChannel && cp.id != ref.id) {
+		return Channel{}, false
+	}
+	return Channel{ID: cp.id, Title: cp.title, IconURL: cp.avatar}, true
+}
+
+// ConfirmChannel fetches YouTube's page of the channel id
+// (https://www.youtube.com/channel/UC…, one request) and checks that the page
+// was served by YouTube and names that channel as its own (see
+// channelPageFromHTML), returning the channel's name and avatar from the
+// same page. Anything else, the fetch failing included, is an error
+// matching ErrChannelNotConfirmed (and the fetch error, if any); so is a
+// page served from anywhere but a channel's own page on YouTube (see
+// isChannelPage), such as a watch page after a redirect. An id that
+// is not a channel ID is refused without a request. The page URL is built
+// from the checked id only, so nothing else can choose what is fetched.
+func (r *Resolver) ConfirmChannel(ctx context.Context, id string) (Channel, error) {
+	if !channelIDPattern.MatchString(id) {
+		return Channel{}, fmt.Errorf("confirm channel: invalid channel id: %w", ErrChannelNotConfirmed)
+	}
+	page := ytPageURL("channel", id)
+	pageURL, err := url.Parse(page)
+	if err != nil {
+		return Channel{}, fmt.Errorf("confirm channel %s: %w: %w", page, ErrChannelNotConfirmed, err)
+	}
+	res, err := r.fetch(ctx, page, fetch.HTMLAccept)
+	if err != nil {
+		return Channel{}, fmt.Errorf("confirm channel %s: %w: %w", page, ErrChannelNotConfirmed, err)
+	}
+	served := finalURL(res, pageURL)
+	if !isChannelPage(served) {
+		return Channel{}, fmt.Errorf("confirm channel %s: page served from %s: %w", page,
+			safeurl.Redacted(served), ErrChannelNotConfirmed)
+	}
+	cp, ok := channelPageFromHTML(res.Body, served)
+	if !ok || cp.id != id {
+		return Channel{}, fmt.Errorf("confirm channel %s: %w", page, ErrChannelNotConfirmed)
+	}
+	return Channel{ID: id, Title: cp.title, IconURL: cp.avatar}, nil
 }
 
 // ChannelAvatar returns the avatar of the YouTube channel whose video feed

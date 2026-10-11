@@ -95,6 +95,10 @@ type Feed struct {
 	// TTLSec is the RSS <ttl> of the last parsed document, in seconds
 	// (0 = none). It still applies after a 304, which carries no document.
 	TTLSec int
+	// InitialPending is set for a subscription stored before its feed could
+	// be fetched: its first stored document follows the initial-add rule
+	// (see FetchSuccess.InitialUnread), which clears the flag.
+	InitialPending bool
 
 	CreatedAt time.Time
 }
@@ -170,6 +174,12 @@ type NewFeed struct {
 	FetchedAt     time.Time // time of the initial fetch
 	NextFetchAt   time.Time
 	TTLSec        int // RSS <ttl> of the initial document, in seconds (0 = none)
+	// InitialPending stores a subscription whose feed could not be fetched
+	// yet (Feed.InitialPending). It takes no entries.
+	InitialPending bool
+	// LastError, when not empty, records the failed fetch the subscription
+	// was stored after: error_count = 1 and last_error = LastError.
+	LastError string
 }
 
 // FetchSuccess is the outcome of a 200 response that parsed successfully.
@@ -185,6 +195,12 @@ type FetchSuccess struct {
 	IconURL       string
 	OriginalTitle string
 	Entries       []NewEntry
+	// InitialUnread applies the initial-add rule when the feed's row is
+	// InitialPending as the outcome is stored: of the entries this fetch
+	// inserts, the InitialUnread with the newest PublishedAt are unread and
+	// the others are stored read (read_at = FetchedAt), and the flag is
+	// cleared. It is ignored for a feed that is not pending.
+	InitialUnread int
 }
 
 // ScopeKind selects which entries the card grid shows.
@@ -290,6 +306,8 @@ type Store interface {
 	// initialUnread entries with the newest PublishedAt are unread; all other
 	// entries are stored read (read_at = f.FetchedAt). Entries sharing a GUID
 	// are collapsed (last one wins). Returns ErrConflict if the URL exists.
+	// A pending subscription (f.InitialPending) takes no entries
+	// (ErrInvalid otherwise).
 	CreateFeed(ctx context.Context, f NewFeed, entries []NewEntry, initialUnread int) (Feed, error)
 	RenameFeed(ctx context.Context, id int64, title string) error
 	// MoveFeed sets the feed's folder; folderID 0 = uncategorized.
@@ -320,7 +338,8 @@ type Store interface {
 	// RecordFetchSuccess upserts entries and updates fetch state in one
 	// transaction: error_count = 0, last_error = NULL, last_fetched_at,
 	// next_fetch_at, etag, last_modified, ttl_sec, and non-empty metadata fields.
-	// Entries whose (feed_id, guid) is new are inserted unread. Existing ones
+	// Entries whose (feed_id, guid) is new are inserted unread, except on a
+	// pending subscription (see FetchSuccess.InitialUnread). Existing ones
 	// get title, summary_html, url, thumbnail_url and updated_at refreshed;
 	// is_read, is_later, is_favourite, read_at, published_at and fetched_at
 	// are never touched. Returns the number of inserted entries.
@@ -331,6 +350,10 @@ type Store interface {
 	// RecordFetchError increments error_count and sets last_error,
 	// last_fetched_at and next_fetch_at. Entries are left untouched.
 	RecordFetchError(ctx context.Context, id int64, msg string, fetchedAt, next time.Time) error
+	// RecordFetchErrorKeepCount is RecordFetchError for a failure that does
+	// not count as one more in a row (a manual refresh): it sets last_error,
+	// last_fetched_at and next_fetch_at and leaves error_count as it is.
+	RecordFetchErrorKeepCount(ctx context.Context, id int64, msg string, fetchedAt, next time.Time) error
 	// UpdateFeedURL stores a permanently redirected feed URL. Returns
 	// ErrConflict if another feed already uses that URL.
 	UpdateFeedURL(ctx context.Context, id int64, url string) error
