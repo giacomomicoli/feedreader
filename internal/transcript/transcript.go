@@ -25,13 +25,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/fetch"
+	"github.com/giacomomicoli/feedreader/internal/innertube"
 )
 
 // Fetcher is the subset of *fetch.Client the package needs.
@@ -191,23 +191,11 @@ func requestError(ctx context.Context, step, rawURL, endpoint string, err error)
 	var se *fetch.StatusError
 	if errors.As(err, &se) {
 		e.msg = fmt.Sprintf("HTTP %d", se.StatusCode)
-		if blockedStatus(se.StatusCode) {
+		if innertube.BlockedStatus(se.StatusCode) {
 			e.kind = ErrBlocked
 		}
 	}
 	return e
-}
-
-// blockedStatus reports whether an HTTP status means YouTube refuses this
-// client: a rate limit, a refusal, a demand to sign in, or a redirect (to
-// a consent or captcha page; neither request follows redirects).
-func blockedStatus(code int) bool {
-	switch {
-	case code == http.StatusTooManyRequests, code == http.StatusForbidden, code == http.StatusUnauthorized:
-		return true
-	default:
-		return code >= http.StatusMultipleChoices && code < http.StatusBadRequest
-	}
 }
 
 // fetchError is a failed request. It matches its kind (ErrBlocked,

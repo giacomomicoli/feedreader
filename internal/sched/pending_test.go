@@ -46,9 +46,12 @@ func downFetcher(err error, page *fetch.Result) *fakeFetcher {
 	})
 }
 
+// callURLs returns the URLs f was asked for, but the YouTube fallback's:
+// the fallback runs before a pending subscription is offered, and fails
+// here (the fake answers its requests 404); fallback_test.go tests it.
 func callURLs(f *fakeFetcher) []string {
 	var out []string
-	for _, c := range f.Calls() {
+	for _, c := range feedRequests(f.Calls()) {
 		out = append(out, c.URL)
 	}
 	return out
@@ -65,7 +68,7 @@ func TestPreview_ChannelFeedDownIsPendingWhenThePageConfirmsIt(t *testing.T) {
 			if *p != want {
 				t.Errorf("preview = %+v, want %+v", *p, want)
 			}
-			calls := fetcher.Calls()
+			calls := feedRequests(fetcher.Calls())
 			if len(calls) != 2 || calls[0].URL != chanFeedURL || calls[1].URL != chanPageURL || calls[1].Accept != fetch.HTMLAccept {
 				t.Errorf("requests = %v, want the feed then the channel page", callURLs(fetcher))
 			}
@@ -119,7 +122,7 @@ func TestPreview_NotPendingUnlessAConfirmedChannelFeedIsDown(t *testing.T) {
 			if err == nil {
 				t.Fatalf("preview = %+v, want the fetch error", p)
 			}
-			if n := tt.fetcher.CallCount(); n != tt.wantCalls {
+			if n := len(feedRequests(tt.fetcher.Calls())); n != tt.wantCalls {
 				t.Errorf("requests = %v, want %d", callURLs(tt.fetcher), tt.wantCalls)
 			}
 		})

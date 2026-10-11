@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
+	"github.com/giacomomicoli/feedreader/internal/innertube"
 )
 
 // jnode is a JSON value as encoding/json's tokenizer reads it, members in
@@ -113,7 +112,7 @@ walk:
 								text = sm.val.text
 							}
 						case "isSpeakerChange":
-							speaker = sm.val.kind == 'l' && truthy([]byte(sm.val.text))
+							speaker = sm.val.kind == 'l' && innertube.Truthy([]byte(sm.val.text))
 						}
 					}
 					texts = texts || isText
@@ -156,66 +155,6 @@ func FuzzParseJSON3_MatchesReference(f *testing.F) {
 	})
 }
 
-// FuzzUnquote: unquote decodes like encoding/json, and its cut prefix
-// clips to the same text as the whole string.
-func FuzzUnquote(f *testing.F) {
-	for _, s := range []string{`plain`, `a\nb\t\"\\\/`, `\u00e9\ud83d\ude00`, `\ud800x`, `\udc00\ud83d`, "\xff\xfe", `\u0000`, `\ud83d\u0041`} {
-		f.Add([]byte(`"`+s+`"`), 3)
-	}
-	f.Fuzz(func(t *testing.T, lit []byte, max int) {
-		var want string
-		lit = bytes.TrimSpace(lit)
-		if len(lit) < 2 || !json.Valid(lit) || json.Unmarshal(lit, &want) != nil {
-			return
-		}
-		contents := lit[1 : len(lit)-1]
-		if got := unquote(contents, len(lit)*utf8.UTFMax); got != want {
-			t.Fatalf("unquote(%q) = %q, want %q", contents, got, want)
-		}
-		max = min(len(lit), max&0xff)
-		got := unquote(contents, max)
-		if !strings.HasPrefix(want, got) || clipUTF8(got, max) != clipUTF8(want, max) {
-			t.Fatalf("unquote(%q, %d) = %q; whole %q", contents, max, got, want)
-		}
-	})
-}
-
-func TestTruthy(t *testing.T) {
-	for lit, want := range map[string]bool{
-		"true": true, "1": true, "-2": true, "0.001": true, "1e-400": true, "3E2": true,
-		"false": false, "null": false, "0": false, "-0": false, "0.0": false, "0e5": false, "": false, "x1": false,
-	} {
-		if got := truthy([]byte(lit)); got != want {
-			t.Errorf("truthy(%q) = %v", lit, got)
-		}
-	}
-}
-
-func TestKeyIs(t *testing.T) {
-	for raw, want := range map[string]bool{
-		`utf8`: true, `utf\u0038`: true, `\u0075tf8`: true, `UTF8`: false, `utf8 `: false,
-		`utf\u00388`: false, `ut`: false, `utf\ud800`: false,
-	} {
-		if got := keyIs([]byte(raw), "utf8"); got != want {
-			t.Errorf("keyIs(%q) = %v", raw, got)
-		}
-	}
-}
-
-// TestJSONWalker_TerminatesOnInvalidInput: the walker only ever sees
-// documents json.Valid accepted, but must not loop or read out of bounds
-// on anything else.
-func TestJSONWalker_TerminatesOnInvalidInput(t *testing.T) {
-	for _, doc := range []string{``, `{`, `[`, `"`, `{"a`, `{"a":`, `{"a":}`, `{:}`, `[,,]`, `{]`, `[}`, `{"a" 1}`, `}}}`, `{"a":"\`, `{,"a":[1,]}`, `x`} {
-		w := &jsonWalker{b: []byte(doc)}
-		w.object(func([]byte) { w.array(func() { w.skip() }) })
-		w.skip()
-		if w.i > len(doc) {
-			t.Errorf("%q: read to %d", doc, w.i)
-		}
-	}
-}
-
 // FuzzJSONWalker_InvalidInput: on bytes json.Valid did not check, the walk
 // must still end within the input.
 func FuzzJSONWalker_InvalidInput(f *testing.F) {
@@ -223,10 +162,10 @@ func FuzzJSONWalker_InvalidInput(f *testing.F) {
 	f.Add([]byte(`{"events":[{"segs":[}],"x":{]`))
 	f.Add([]byte(`{"events":[,:,{"segs":[{"utf8":"x","isSpeakerChange":}]}]}`))
 	f.Fuzz(func(t *testing.T, body []byte) {
-		w := &jsonWalker{b: body}
+		w := innertube.NewWalker(body)
 		readEvents(w, newTextBuilder(fuzzTextRunes))
-		if w.i > len(body) {
-			t.Fatalf("walked to %d of %d", w.i, len(body))
+		if w.Pos() > len(body) {
+			t.Fatalf("walked to %d of %d", w.Pos(), len(body))
 		}
 	})
 }

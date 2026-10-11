@@ -153,6 +153,23 @@ func markNewestUnread(ctx context.Context, tx *sql.Tx, feedID int64, list []NewE
 	return nil
 }
 
+// markOlderRead marks read (read_at = at) the entries a fetch inserted
+// (indices into list, with row ids ids) that are published no later than
+// newest (a Unix time), and returns the ids of those left unread.
+func markOlderRead(ctx context.Context, tx *sql.Tx, list []NewEntry, inserted []int, ids []int64, newest int64,
+	at time.Time) (unread []int64, err error) {
+	for j, i := range inserted {
+		if list[i].PublishedAt.Unix() > newest {
+			unread = append(unread, ids[j])
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE entries SET is_read = 1, read_at = ? WHERE id = ?`, at.Unix(), ids[j]); err != nil {
+			return nil, fmt.Errorf("mark entry %q read: %w", list[i].GUID, err)
+		}
+	}
+	return unread, nil
+}
+
 // DueFeeds returns feeds with next_fetch_at <= now, ordered by next_fetch_at.
 func (s *SQLite) DueFeeds(ctx context.Context, now time.Time) ([]Feed, error) {
 	feeds, err := queryFeeds(ctx, s.db,
@@ -235,7 +252,10 @@ func (s *SQLite) AdvanceNextFetch(ctx context.Context, id int64, at time.Time) (
 // FetchSuccess.InitialUnread) and the flag is cleared, in the same
 // transaction: a failed write leaves the feed pending.
 //
-// Otherwise, with r.QueueTranscripts, the transcript of every inserted entry
+// Otherwise, with r.OlderAsRead, the inserted entries published no later
+// than the newest entry the feed had (not counting entries dated after
+// r.FetchedAt) are stored read; and with
+// r.QueueTranscripts, the transcript of every inserted entry left unread
 // is queued in the same transaction, due at once (as of the fetch), when the
 // global transcript setting and the feed's switch are on. A pending
 // subscription's first success never queues: it is stored as an initial
@@ -251,8 +271,15 @@ func (s *SQLite) RecordFetchSuccess(ctx context.Context, r FetchSuccess) (int, e
 	}
 	var inserted int
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
-		var pending bool
-		err := tx.QueryRowContext(ctx, `SELECT initial_pending FROM feeds WHERE id = ?`, r.FeedID).Scan(&pending)
+		var (
+			pending bool
+			newest  sql.NullInt64 // the newest published_at stored before this fetch, up to it
+		)
+		// An entry dated after this fetch (a premiere announced ahead, a
+		// wrong date) is no reference for what is old.
+		err := tx.QueryRowContext(ctx, `SELECT initial_pending,
+				(SELECT MAX(published_at) FROM entries WHERE feed_id = feeds.id AND published_at <= ?)
+			FROM feeds WHERE id = ?`, fetchedAt.Unix(), r.FeedID).Scan(&pending, &newest)
 		if err != nil {
 			return fmt.Errorf("feed %d: %w", r.FeedID, classify(err))
 		}
@@ -274,6 +301,11 @@ func (s *SQLite) RecordFetchSuccess(ctx context.Context, r FetchSuccess) (int, e
 		inserted = len(added)
 		if pending {
 			return markNewestUnread(ctx, tx, r.FeedID, list, added, r.InitialUnread)
+		}
+		if r.OlderAsRead && newest.Valid {
+			if ids, err = markOlderRead(ctx, tx, list, added, ids, newest.Int64, fetchedAt); err != nil {
+				return err
+			}
 		}
 		if r.QueueTranscripts {
 			return queueTranscripts(ctx, tx, r.FeedID, ids, fetchedAt)

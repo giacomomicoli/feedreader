@@ -180,3 +180,32 @@ func TestAllowedHosts(t *testing.T) {
 		}
 	}
 }
+
+// TestYouTubeFallback: FR_YOUTUBE_FALLBACK is on unless set to a boolean
+// that strconv.ParseBool accepts as false; anything else is a
+// configuration error naming the variable.
+func TestYouTubeFallback(t *testing.T) {
+	c, err := fromMap(map[string]string{})
+	if err != nil || !c.YouTubeFallback {
+		t.Fatalf("default: YouTubeFallback = %v, %v; want on", c.YouTubeFallback, err)
+	}
+	for v, want := range map[string]bool{"true": true, "1": true, "false": false, "0": false, "FALSE": false} {
+		c, err := fromMap(map[string]string{"FR_YOUTUBE_FALLBACK": v})
+		if err != nil || c.YouTubeFallback != want {
+			t.Errorf("FR_YOUTUBE_FALLBACK=%s: YouTubeFallback = %v, %v; want %v", v, c.YouTubeFallback, err, want)
+		}
+	}
+	for _, v := range []string{"yes", "off", " false"} {
+		if _, err := fromMap(map[string]string{"FR_YOUTUBE_FALLBACK": v}); err == nil ||
+			!strings.Contains(err.Error(), "FR_YOUTUBE_FALLBACK") {
+			t.Errorf("FR_YOUTUBE_FALLBACK=%q: err = %v, want an error naming the variable", v, err)
+		}
+	}
+	// The bounds of one fallback: one browse per tab, at most two tabs, and
+	// at most as many player requests as a feed lists videos, spaced.
+	if YouTubeFallbackMaxBrowse < 1 || YouTubeFallbackMaxIDs < 1 || YouTubeFallbackMaxVideos < 1 ||
+		YouTubeFallbackMaxVideos > YouTubeFallbackMaxBrowse*YouTubeFallbackMaxIDs || YouTubeFallbackSpacing < time.Second {
+		t.Errorf("fallback bounds: browse %d, ids %d, videos %d, spacing %s", YouTubeFallbackMaxBrowse,
+			YouTubeFallbackMaxIDs, YouTubeFallbackMaxVideos, YouTubeFallbackSpacing)
+	}
+}

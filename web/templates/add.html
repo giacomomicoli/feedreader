@@ -68,9 +68,11 @@
   <input type="hidden" name="site_url" value="{{.Preview.SiteURL}}">
   {{with .Preview.IconURL}}<input type="hidden" name="icon_url" value="{{.}}">{{end}}
   {{if .Preview.Pending}}<input type="hidden" name="allow_pending" value="1">{{end}}
+  {{if .Preview.Fallback}}<input type="hidden" name="fallback" value="1">{{end}}
   <div class="preview">
     <p class="preview-kind">{{.Preview.KindLabel}}</p>
     <p class="preview-url">{{.Preview.FeedURL}}</p>
+    {{with .Preview.FallbackNote}}<p class="preview-pending">{{.}}</p>{{end}}
     <p{{if .Preview.Pending}} class="preview-pending"{{end}}>{{.Preview.CountText}} {{.Preview.UnreadNote}}</p>
   </div>
   <label for="sub-title">Title</label>

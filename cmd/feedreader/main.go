@@ -207,7 +207,8 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) (err error)
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
 	log.Info("feedreader started", "version", config.Version, "listen", "http://"+ln.Addr().String(),
-		"db", cfg.DBPath(), "time_zone", timeZone(time.Now()), "transcripts", cfg.Transcripts)
+		"db", cfg.DBPath(), "time_zone", timeZone(time.Now()), "transcripts", cfg.Transcripts,
+		"youtube_fallback", cfg.YouTubeFallback)
 
 	select {
 	case <-ctx.Done():

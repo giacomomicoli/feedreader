@@ -71,6 +71,11 @@ type previewView struct {
 	// subscribed to anyway; the form then carries the user's consent
 	// (allow_pending), which the scheduler checks for itself.
 	Pending bool
+	// Fallback is set when the feed is not answering and its entries are
+	// the channel's latest videos read from YouTube's website; the form
+	// carries it (fallback) only to show FallbackNote again.
+	Fallback     bool
+	FallbackNote string
 	// Modes are the modes a YouTube channel can be followed in (all
 	// uploads, only regular videos, only Shorts), the picked one selected;
 	// nil for other feeds and for a pending preview, whose mode is picked
@@ -80,11 +85,16 @@ type previewView struct {
 	ModeNote  string
 }
 
+// fallbackNote tells that a preview's videos were read from YouTube's web
+// API, the feed not answering.
+const fallbackNote = "YouTube's feed isn't answering for this channel right now, " +
+	"so its latest videos were read from YouTube's website instead."
+
 // pendingNote replaces the entry count of a pending preview.
 const pendingNote = "YouTube's feed isn't answering for this channel right now. " +
 	"You can subscribe anyway, videos will show up once it does."
 
-func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n int, pending bool) previewView {
+func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n int, pending, fallback bool) previewView {
 	if kind != store.KindYouTube {
 		kind = store.KindRSS
 	}
@@ -105,6 +115,9 @@ func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n 
 		} else {
 			p.Modes, p.ModeNote = modeOptions(feedURL, ""), addModeNote
 		}
+	}
+	if fallback && !pending && kind == store.KindYouTube {
+		p.Fallback, p.FallbackNote = true, fallbackNote
 	}
 	switch {
 	case pending:
@@ -251,7 +264,7 @@ func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, ic
 	v.Step = stepConfirm
 	// A pending preview's avatar comes from the channel's page, fetched just
 	// now by the server.
-	v.Preview = newPreviewView(finalURL, p.Kind, p.SiteURL, cmp.Or(p.IconURL, iconURL), p.EntryCount, p.Pending)
+	v.Preview = newPreviewView(finalURL, p.Kind, p.SiteURL, cmp.Or(p.IconURL, iconURL), p.EntryCount, p.Pending, p.Fallback)
 	v.Title = p.Title
 	v.Folders = folderOptions(folders, 0)
 	s.renderAdd(w, r, http.StatusOK, v)
@@ -306,7 +319,7 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 	v := addView{
 		Step: stepConfirm,
 		Preview: newPreviewView(feedURL, store.Kind(f.Get("kind")), f.Get("site_url"), f.Get("icon_url"),
-			max(entries, 0), pending),
+			max(entries, 0), pending, f.Get("fallback") == "1"),
 		Title:       cleanName(f.Get("title")),
 		NewSelected: f.Get("folder") == folderNew,
 		NewFolder:   cleanName(f.Get("new_folder")),

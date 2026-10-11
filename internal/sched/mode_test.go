@@ -197,7 +197,8 @@ func TestPoll_ModeFeedFailureNeverFallsBackToTheChannelFeed(t *testing.T) {
 			if after.URL != u || after.ErrorCount != 3 || len(feedEntries(t, st, f.ID)) != 2 {
 				t.Errorf("after 3 failures: %+v", after)
 			}
-			for _, c := range fetcher.Calls() {
+			// The YouTube fallback reads the mode's own tab (fallback_test.go).
+			for _, c := range feedRequests(fetcher.Calls()) {
 				if c.URL != u {
 					t.Errorf("fetched %s; want only the mode feed", c.URL)
 				}

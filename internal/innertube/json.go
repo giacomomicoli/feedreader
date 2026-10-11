@@ -1,4 +1,4 @@
-package transcript
+package innertube
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-// jsonWalker reads a JSON document that json.Valid accepted, without
+// Walker reads a JSON document that json.Valid accepted, without
 // allocating: it visits the members and elements a caller asks for, skips
 // everything else, and hands out string contents as slices of the input.
 //
@@ -18,16 +18,25 @@ import (
 // only tracks where values begin and end; on input json.Valid refused it
 // still stays within the input and terminates, but its results are
 // meaningless.
-type jsonWalker struct {
-	b    []byte
-	i    int
-	stop bool // set by a caller to end the walk
+type Walker struct {
+	b []byte
+	i int
+	// Stop is set by a caller to end the walk: Next then returns 0.
+	Stop bool
 }
 
-// next returns the next byte that is not whitespace, or 0 at the end or
+// NewWalker returns a Walker at the start of b.
+func NewWalker(b []byte) *Walker { return &Walker{b: b} }
+
+// Pos returns the offset in the input of the next byte to read: where the
+// value that comes next begins (after Next), or where the one just read
+// ends.
+func (w *Walker) Pos() int { return w.i }
+
+// Next returns the next byte that is not whitespace, or 0 at the end or
 // once the walk is stopped.
-func (w *jsonWalker) next() byte {
-	for !w.stop && w.i < len(w.b) {
+func (w *Walker) Next() byte {
+	for !w.Stop && w.i < len(w.b) {
 		switch c := w.b[w.i]; c {
 		case ' ', '\t', '\n', '\r':
 			w.i++
@@ -38,11 +47,11 @@ func (w *jsonWalker) next() byte {
 	return 0
 }
 
-// str consumes the string that comes next and returns its contents
+// Str consumes the string that comes next and returns its contents
 // between the quotes, still escaped.
-func (w *jsonWalker) str() []byte {
-	if w.next() != '"' {
-		w.skip()
+func (w *Walker) Str() []byte {
+	if w.Next() != '"' {
+		w.Skip()
 		return nil
 	}
 	start := w.i + 1
@@ -59,10 +68,10 @@ func (w *jsonWalker) str() []byte {
 	return w.b[min(start, len(w.b)):]
 }
 
-// literal consumes the number, true, false or null that comes next and
+// Literal consumes the number, true, false or null that comes next and
 // returns it.
-func (w *jsonWalker) literal() []byte {
-	w.next()
+func (w *Walker) Literal() []byte {
+	w.Next()
 	start := w.i
 	for w.i < len(w.b) && strings.IndexByte(",:]}\"[{ \t\n\r", w.b[w.i]) < 0 {
 		w.i++
@@ -70,18 +79,18 @@ func (w *jsonWalker) literal() []byte {
 	return w.b[start:w.i]
 }
 
-// skip consumes the value that comes next, whatever it is.
-func (w *jsonWalker) skip() {
-	switch w.next() {
+// Skip consumes the value that comes next, whatever it is.
+func (w *Walker) Skip() {
+	switch w.Next() {
 	case 0:
 	case '"':
-		w.str()
+		w.Str()
 	case '{', '[':
 		depth := 0
 		for w.i < len(w.b) {
 			switch w.b[w.i] {
 			case '"':
-				w.str()
+				w.Str()
 				continue
 			case '{', '[':
 				depth++
@@ -94,54 +103,54 @@ func (w *jsonWalker) skip() {
 			}
 		}
 	default:
-		if len(w.literal()) == 0 {
+		if len(w.Literal()) == 0 {
 			w.i++ // a stray delimiter (invalid JSON): step over it
 		}
 	}
 }
 
-// object calls member for each member of the object that comes next, with
+// Object calls member for each member of the object that comes next, with
 // its key still escaped; member consumes the value or leaves it to be
 // skipped. Anything but an object is skipped.
-func (w *jsonWalker) object(member func(key []byte)) {
-	if w.next() != '{' {
-		w.skip()
+func (w *Walker) Object(member func(key []byte)) {
+	if w.Next() != '{' {
+		w.Skip()
 		return
 	}
 	w.i++
 	for {
-		switch w.next() {
+		switch w.Next() {
 		case '}':
 			w.i++
 			return
 		case ',':
 			w.i++
 		case '"':
-			key := w.str()
-			if w.next() == ':' {
+			key := w.Str()
+			if w.Next() == ':' {
 				w.i++
 			}
-			w.value(func() { member(key) })
+			w.Value(func() { member(key) })
 		default:
-			w.skip() // 0 (end or stopped) or invalid JSON
-			if w.next() == 0 {
+			w.Skip() // 0 (end or stopped) or invalid JSON
+			if w.Next() == 0 {
 				return
 			}
 		}
 	}
 }
 
-// array calls element for each element of the array that comes next;
+// Array calls element for each element of the array that comes next;
 // element consumes the value or leaves it to be skipped. Anything but an
 // array is skipped.
-func (w *jsonWalker) array(element func()) {
-	if w.next() != '[' {
-		w.skip()
+func (w *Walker) Array(element func()) {
+	if w.Next() != '[' {
+		w.Skip()
 		return
 	}
 	w.i++
 	for {
-		switch w.next() {
+		switch w.Next() {
 		case ']':
 			w.i++
 			return
@@ -150,33 +159,33 @@ func (w *jsonWalker) array(element func()) {
 		case 0:
 			return
 		default:
-			w.value(element)
+			w.Value(element)
 		}
 	}
 }
 
-// value runs read on the value that comes next and skips the value if read
+// Value runs read on the value that comes next and skips the value if read
 // did not consume it.
-func (w *jsonWalker) value(read func()) {
-	w.next()
+func (w *Walker) Value(read func()) {
+	w.Next()
 	start := w.i
 	read()
-	if w.i == start && !w.stop {
-		w.skip()
+	if w.i == start && !w.Stop {
+		w.Skip()
 	}
 }
 
-// keyIs reports whether the escaped object key raw is want.
-func keyIs(raw []byte, want string) bool {
+// KeyIs reports whether the escaped object key raw is want.
+func KeyIs(raw []byte, want string) bool {
 	if bytes.IndexByte(raw, '\\') < 0 {
 		return string(raw) == want
 	}
-	return unquote(raw, len(want)+1) == want
+	return Unquote(raw, len(want)+1) == want
 }
 
-// truthy reports whether a JSON literal is true or a non-zero number: its
+// Truthy reports whether a JSON literal is true or a non-zero number: its
 // mantissa holds a non-zero digit.
-func truthy(lit []byte) bool {
+func Truthy(lit []byte) bool {
 	if string(lit) == "true" {
 		return true
 	}
@@ -189,14 +198,14 @@ func truthy(lit []byte) bool {
 	return bytes.ContainsAny(lit, "123456789")
 }
 
-// unquote decodes s, the escaped contents of a JSON string, as
+// Unquote decodes s, the escaped contents of a JSON string, as
 // encoding/json does (invalid UTF-8 and unpaired surrogates become
 // U+FFFD), but only about its first max bytes: when the decoded string is
 // longer, the result is a prefix of it, cut at a rune boundary, that
-// clipUTF8 cuts to max bytes exactly as it cuts the whole string.
-func unquote(s []byte, max int) string {
+// ClipUTF8Bytes cuts to max bytes exactly as it cuts the whole string.
+func Unquote(s []byte, max int) string {
 	if bytes.IndexByte(s, '\\') < 0 && utf8.Valid(s) {
-		return string(clipUTF8Bytes(s, max))
+		return string(ClipUTF8Bytes(s, max))
 	}
 	var b strings.Builder
 	b.Grow(min(len(s), max+utf8.UTFMax))
@@ -272,8 +281,9 @@ func hex4(s []byte) (rune, bool) {
 	return r, true
 }
 
-// clipUTF8Bytes is clipUTF8 for a byte slice.
-func clipUTF8Bytes(s []byte, n int) []byte {
+// ClipUTF8Bytes returns the longest prefix of s of at most n bytes that
+// does not end inside a UTF-8 sequence (s itself when it is that short).
+func ClipUTF8Bytes(s []byte, n int) []byte {
 	if len(s) <= n {
 		return s
 	}

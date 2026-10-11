@@ -45,6 +45,10 @@ type Preview struct {
 	// page on YouTube (either may be ""), and EntryCount 0.
 	Pending bool
 	IconURL string
+	// Fallback is set when the feed did not answer and its entries are
+	// the channel's videos as YouTube's web API lists them (see
+	// addFallback); Subscribe then stores those.
+	Fallback bool
 }
 
 // Subscription is the confirmed add-feed form.
@@ -143,6 +147,14 @@ type Scheduler struct {
 	// rate limit (see mode.go).
 	rateMu      sync.Mutex
 	rateLimited map[int64]rateLimitMark
+
+	// The YouTube fallback's pacing (see fallbackTurn): the earliest time
+	// of its next request, the least time between two, and the sleep;
+	// tests replace the last two.
+	fallbackMu      sync.Mutex
+	fallbackNext    time.Time
+	fallbackSpacing time.Duration
+	fallbackSleep   func(ctx context.Context, d time.Duration)
 }
 
 // New creates a scheduler. It makes no HTTP request until Run is called and
@@ -182,6 +194,8 @@ func New(st store.Store, f Fetcher, cfg config.Config, log *slog.Logger) *Schedu
 		sleep:                  sleepCtx,
 		transcriptTimer:        newTimer,
 		rateLimited:            make(map[int64]rateLimitMark),
+		fallbackSpacing:        config.YouTubeFallbackSpacing,
+		fallbackSleep:          sleepCtx,
 	}
 }
 
@@ -324,11 +338,15 @@ func (s *Scheduler) takeUnholds() (ids map[int64]struct{}, all bool) {
 // fetch.ErrTooLarge, parse.ErrNotAFeed, …) so callers can tell the user what
 // went wrong. An empty URL yields an error wrapping store.ErrInvalid.
 //
-// A YouTube channel feed whose endpoint answers 404 or 5xx (YouTube serves
-// working channels' feeds with such errors for hours at a time) is not an
-// error when YouTube's page of the channel, fetched once more, confirms the
-// channel: the preview is then Pending, and Subscribe with AllowPending can
-// store the channel before its feed answers (see subscribePending).
+// A YouTube channel feed (in any mode) whose endpoint answers 404 or 5xx
+// (YouTube serves working channels' feeds with such errors for hours at a
+// time) is read from YouTube's web API instead, with FR_YOUTUBE_FALLBACK
+// on: the preview is then a Fallback one, titled with the channel's name,
+// and Subscribe stores those videos (see addFallback). When that fails
+// too, it is not an error either when YouTube's page of the channel,
+// fetched once more, confirms the channel: the preview is then Pending,
+// and Subscribe with AllowPending can store the channel before its feed
+// answers (see subscribePending).
 func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, error) {
 	feedURL = strings.TrimSpace(feedURL)
 	if feedURL == "" {
@@ -337,7 +355,7 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 	fd := s.cache.get(feedURL, s.now()) // fetched moments ago by the resolver
 	if fd == nil {
 		var err error
-		if fd, err = s.fetchFeed(ctx, feedURL); err != nil {
+		if fd, err = s.fetchFeedOrFallback(ctx, feedURL); err != nil {
 			if p := s.pendingPreview(ctx, feedURL, err); p != nil {
 				return p, nil
 			}
@@ -350,6 +368,7 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 		Title:      fd.doc.Title,
 		SiteURL:    fd.doc.SiteURL,
 		EntryCount: len(fd.doc.Entries),
+		Fallback:   fd.fallback,
 	}, nil
 }
 
@@ -372,8 +391,10 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 // a digest time). The folder's ingestion times are read again once the feed
 // is created (see recheckIngest).
 //
-// With sub.AllowPending, a feed that does not answer may still be stored as
-// a pending subscription; see subscribePending.
+// A YouTube channel's feed that does not answer is read from YouTube's web
+// API as in Preview (see addFallback). When that fails too, with
+// sub.AllowPending, it may still be stored as a pending subscription; see
+// subscribePending.
 func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed, error) {
 	feedURL := strings.TrimSpace(sub.FeedURL)
 	if feedURL == "" {
@@ -386,7 +407,7 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 	if fd == nil {
 		started := s.now()
 		var err error
-		if fd, err = s.fetchFeed(ctx, feedURL); err != nil {
+		if fd, err = s.fetchFeedOrFallback(ctx, feedURL); err != nil {
 			if sub.AllowPending {
 				if feed, ok, perr := s.subscribePending(ctx, sub, feedURL, started, s.now(), err); ok {
 					return feed, perr

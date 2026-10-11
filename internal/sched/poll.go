@@ -40,6 +40,11 @@ var errNoResult = errors.New("fetch returned no response")
 //     URL). A redirect to anything else is recorded as that failure and the
 //     stored URL is kept, so a parked domain or a maintenance page cannot
 //     replace the feed's address for good;
+//   - a YouTube channel's feed (in any mode) answering 404 or 5xx, with
+//     FR_YOUTUBE_FALLBACK on: its videos are read from YouTube's web API
+//     instead, in this poll (see fallback.go and pollFallback), and stored
+//     as a 200 would store them, the feed's validators kept. When that
+//     fails too, the feed's own failure is recorded as below;
 //   - anything else (HTTP error status, network, size cap, redirect loop,
 //     unparseable or non-feed body): error_count++ and last_error, with the
 //     next poll delayed by failureDelay: a quick retry after a first
@@ -93,6 +98,9 @@ func (s *Scheduler) pollWith(ctx context.Context, f store.Feed, manual *manualRe
 		err = errNoResult
 	}
 	if err != nil {
+		if hold, done := s.pollFallback(ctx, f, manual, started, base, err); done {
+			return hold
+		}
 		return s.recordFailure(ctx, f, manual, started, fetchedAt, base, err)
 	}
 

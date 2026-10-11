@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/fetch"
 	"github.com/giacomomicoli/feedreader/internal/parse"
 	"github.com/giacomomicoli/feedreader/internal/resolve"
@@ -37,6 +38,9 @@ type fetched struct {
 	// fetchedAt is when the response arrived: the feed's last fetch, and
 	// what the age of the cached fetch counts from.
 	fetchedAt time.Time
+	// fallback is set when the feed did not answer and doc holds its
+	// channel's videos as YouTube's web API lists them (see addFallback).
+	fallback bool
 }
 
 // fetchFeed fetches and parses feedURL unconditionally and caches the
@@ -48,6 +52,67 @@ func (s *Scheduler) fetchFeed(ctx context.Context, feedURL string) (*fetched, er
 		return nil, err
 	}
 	return s.keep(feedURL, res, started)
+}
+
+// fetchFeedOrFallback is fetchFeed, falling back to YouTube's web API when
+// a YouTube channel's feed answers 404 or 5xx (see addFallback). err is the
+// feed's own error when both fail.
+func (s *Scheduler) fetchFeedOrFallback(ctx context.Context, feedURL string) (*fetched, error) {
+	started := s.now()
+	fd, err := s.fetchFeed(ctx, feedURL)
+	if err == nil {
+		return fd, nil
+	}
+	if fb := s.addFallback(ctx, feedURL, started, err); fb != nil {
+		return fb, nil
+	}
+	return nil, err
+}
+
+// addFallback reads the videos of the YouTube channel whose feed feedURL
+// failed with cause, through the add flow's fetch slots and within
+// config.YouTubeFallbackAddTimeout, when the fallback applies (see
+// fallback.go). The result is cached like a fetch of the feed, as a
+// document titled with the channel's name that lists the videos, so that
+// Subscribe stores them as an initial add. It returns nil when the
+// fallback does not apply, fails, or finds no video to store.
+func (s *Scheduler) addFallback(ctx context.Context, feedURL string, started time.Time, cause error) *fetched {
+	channelID, m, ok := s.fallbackChannel(resolve.KindForURL(feedURL), feedURL, cause)
+	if !ok {
+		return nil
+	}
+	fctx, cancel := context.WithTimeout(ctx, config.YouTubeFallbackAddTimeout)
+	defer cancel()
+	res, err := s.readChannel(fctx, addFetcher{s}, 0, channelID, m)
+	if err == nil && len(res.entries) == 0 {
+		// Nothing to show, nor the channel's name: the fallback did not
+		// help, and a pending subscription (named from the channel's
+		// page) may be offered instead.
+		err = errFallbackNothing
+	}
+	if err != nil {
+		s.log.Info("YouTube fallback failed for a new feed", "url", redact(feedURL), "mode", m, "err", failureMessage(err))
+		return nil
+	}
+	fd := &fetched{
+		feedURL:   feedURL,
+		kind:      store.KindYouTube,
+		doc:       &parse.Feed{Title: res.author, Entries: res.entries},
+		started:   started,
+		fetchedAt: s.now(),
+		fallback:  true,
+	}
+	s.cache.put(fd, feedURL)
+	s.log.Info("read a new feed's videos from YouTube's web API", "url", redact(feedURL), "mode", m,
+		"entries", len(res.entries), "skipped", res.skipped, "source", fallbackSource)
+	return fd
+}
+
+// addFetcher fetches through the add flow's slots (addFetch).
+type addFetcher struct{ s *Scheduler }
+
+func (f addFetcher) Fetch(ctx context.Context, r fetch.Request) (*fetch.Result, error) {
+	return f.s.addFetch(ctx, r)
 }
 
 // keep parses res, the response to an add-flow fetch of feedURL started at

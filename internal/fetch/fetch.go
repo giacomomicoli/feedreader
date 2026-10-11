@@ -42,6 +42,10 @@ type Request struct {
 	// Retry-After) instead of following it, for a GET that must reach no
 	// other URL than its own. A POST never follows a redirect (post.go).
 	NoRedirects bool
+	// MaxBytes, when positive and below the client's cap, is the cap on
+	// this response's (decompressed) body instead: for an API whose
+	// answers are known to be much smaller than a feed may be.
+	MaxBytes int64
 }
 
 // Result is a successful (200) or not-modified (304) response.
@@ -220,7 +224,7 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*Result, error) {
 		return res, nil
 	}
 
-	body, err := c.readBody(resp)
+	body, err := c.readBody(resp, c.capFor(r))
 	if err != nil {
 		if errors.Is(err, ErrTooLarge) {
 			return nil, fmt.Errorf("fetch %s: %w", display, err)
@@ -284,14 +288,23 @@ func (c *Client) newRequest(ctx context.Context, target *url.URL, method string,
 	return req, nil
 }
 
-// readBody reads the (already decompressed) body, failing with ErrTooLarge
-// as soon as it exceeds the cap so a compression bomb is never inflated in
-// full.
-func (c *Client) readBody(resp *http.Response) ([]byte, error) {
-	if resp.ContentLength > c.maxBody {
-		return nil, c.tooLarge()
+// capFor returns the body cap of request r: the client's, or r.MaxBytes
+// when that is lower.
+func (c *Client) capFor(r Request) int64 {
+	if r.MaxBytes > 0 && r.MaxBytes < c.maxBody {
+		return r.MaxBytes
 	}
-	limit := c.maxBody
+	return c.maxBody
+}
+
+// readBody reads the (already decompressed) body, failing with ErrTooLarge
+// as soon as it exceeds maxBody so a compression bomb is never inflated in
+// full.
+func (c *Client) readBody(resp *http.Response, maxBody int64) ([]byte, error) {
+	if resp.ContentLength > maxBody {
+		return nil, tooLarge(maxBody)
+	}
+	limit := maxBody
 	if limit < math.MaxInt64 {
 		limit++ // one extra byte tells "exactly at the cap" from "over it"
 	}
@@ -299,15 +312,15 @@ func (c *Client) readBody(resp *http.Response) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(body)) > c.maxBody {
-		return nil, c.tooLarge()
+	if int64(len(body)) > maxBody {
+		return nil, tooLarge(maxBody)
 	}
 	return body, nil
 }
 
-func (c *Client) tooLarge() error {
+func tooLarge(maxBody int64) error {
 	return &reasonError{
-		msg:    fmt.Sprintf("%v of %s", ErrTooLarge, formatBytes(c.maxBody)),
+		msg:    fmt.Sprintf("%v of %s", ErrTooLarge, formatBytes(maxBody)),
 		target: ErrTooLarge,
 	}
 }

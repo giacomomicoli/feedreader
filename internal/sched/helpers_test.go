@@ -17,6 +17,7 @@ import (
 
 	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/fetch"
+	"github.com/giacomomicoli/feedreader/internal/innertube"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -351,7 +352,21 @@ func newTestScheduler(t *testing.T, st store.Store, f Fetcher, workers int) *Sch
 	t.Helper()
 	cfg := config.Default()
 	cfg.FetchWorkers = workers
-	return New(st, f, cfg, testLogger(t))
+	s := New(st, f, cfg, testLogger(t))
+	s.fallbackSpacing = 0 // fallback_test.go tests the spacing
+	return s
+}
+
+// feedRequests returns the requests among calls that are not the YouTube
+// fallback's (innertube.BrowseURL, innertube.PlayerURL).
+func feedRequests(calls []fetch.Request) []fetch.Request {
+	var out []fetch.Request
+	for _, c := range calls {
+		if c.URL != innertube.BrowseURL && c.URL != innertube.PlayerURL {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // newClockedScheduler returns a scheduler whose clock is c.

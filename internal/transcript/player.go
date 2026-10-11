@@ -5,56 +5,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"mime"
-	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
+	"github.com/giacomomicoli/feedreader/internal/innertube"
 )
 
-// The player request. YouTube's Android app asks the same endpoint as its
-// web player, but its answers carry caption URLs that need no
-// proof-of-origin token. The client version is one the endpoint accepts
-// without further headers, an API key or cookies; YouTube may stop
-// accepting it at any time, which shows up as ErrBlocked or
-// ErrUnavailable for every video.
+// The player request, sent as YouTube's Android app (see
+// innertube.Android): its answers carry caption URLs that need no
+// proof-of-origin token. YouTube may stop accepting that client at any
+// time, which shows up as ErrBlocked or ErrUnavailable for every video.
 const (
-	playerURL     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
-	clientName    = "ANDROID"
-	clientVersion = "20.10.38"
-	// clientLang is the interface language asked for. Track choice does
-	// not depend on it; it keeps YouTube's messages and track names in
-	// one language whatever the server's location.
-	clientLang = "en"
+	playerURL     = innertube.PlayerURL
+	clientName    = innertube.AndroidName
+	clientVersion = innertube.AndroidVersion
+	clientLang    = innertube.Lang
 	// jsonType is the content type sent and expected.
-	jsonType = "application/json"
+	jsonType = innertube.JSONType
 )
 
 // playerRequest returns the POST asking for the player response of video id.
 func playerRequest(id string) fetch.Request {
-	var body struct {
-		Context struct {
-			Client struct {
-				Name    string `json:"clientName"`
-				Version string `json:"clientVersion"`
-				Lang    string `json:"hl"`
-			} `json:"client"`
-		} `json:"context"`
-		VideoID string `json:"videoId"`
-	}
-	body.Context.Client.Name = clientName
-	body.Context.Client.Version = clientVersion
-	body.Context.Client.Lang = clientLang
-	body.VideoID = id
-	b, _ := json.Marshal(body) // strings only: cannot fail
-	return fetch.Request{
-		URL:         playerURL,
-		Method:      http.MethodPost,
-		Body:        string(b),
-		ContentType: jsonType,
-		Accept:      jsonType,
-	}
+	return innertube.PlayerRequest(innertube.Android, id)
 }
 
 // playerResponse is the part of the player response this package reads.
@@ -194,39 +167,6 @@ type track struct {
 	generated bool
 }
 
-// Playability statuses (playabilityStatus.status).
-const (
-	statusOK = "OK"
-	// statusLoginRequired is a bot check, or an age-restricted or private
-	// video, told apart by the reason.
-	statusLoginRequired = "LOGIN_REQUIRED"
-	// statusUpcoming is a live stream or premiere that has not started.
-	statusUpcoming = "LIVE_STREAM_OFFLINE"
-)
-
-// unavailableStatuses are statuses of a video this client cannot play:
-// "ERROR" (removed or nonexistent, "This video is unavailable"),
-// "UNPLAYABLE" (private, members-only, region-blocked) and the age and
-// content checks.
-var unavailableStatuses = map[string]bool{
-	"ERROR": true, "UNPLAYABLE": true, "AGE_CHECK_REQUIRED": true,
-	"AGE_VERIFICATION_REQUIRED": true, "CONTENT_CHECK_REQUIRED": true,
-}
-
-// loginUnavailableReasons mark a LOGIN_REQUIRED status that concerns the
-// video rather than this client (in the English messages clientLang asks
-// for): an age-restricted, private or members-only video. Any other sign-in
-// demand, such as "Sign in to confirm you're not a bot", is a block, which
-// pauses all transcript requests; a per-video refusal taken for one would
-// cost that pause again each time the video's turn came round.
-var loginUnavailableReasons = []string{
-	"confirm your age", "inappropriate for some users", "age-restricted", "private",
-	"members-only", "channel's members",
-}
-
-// statusPattern is a playability status safe to show in a message.
-var statusPattern = regexp.MustCompile(`^[A-Z_]+$`)
-
 // langPattern is a BCP 47-shaped language code, e.g. "en", "zh-Hant",
 // "es-419".
 var langPattern = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
@@ -235,12 +175,11 @@ var langPattern = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
 // contentType, and returns the caption track to fetch.
 func parsePlayer(body []byte, contentType, id string) (track, error) {
 	const step = "player response"
-	mt, _, _ := mime.ParseMediaType(contentType)
 	switch {
-	case mt == "text/html":
+	case innertube.IsWebPage(contentType):
 		// A consent, captcha or error page instead of the API's answer.
 		return track{}, fmt.Errorf("%w: %s is a web page", ErrBlocked, step)
-	case mt != jsonType:
+	case !innertube.IsJSON(contentType):
 		return track{}, formatError(step, "content type is not JSON")
 	case len(body) > maxPlayerBytes:
 		return track{}, fmt.Errorf("%w: %s", ErrTooLarge, step)
@@ -317,26 +256,20 @@ func decodePlayer(body []byte) (*playerResponse, error) {
 // ever part of the error; the status token is, when it is one.
 func playability(p *playerResponse) error {
 	status := p.PlayabilityStatus.Status
-	switch {
-	case status == statusOK:
+	switch innertube.Classify(status, p.PlayabilityStatus.Reason) {
+	case innertube.Playable:
 		return nil
-	case status == statusLoginRequired:
-		reason := strings.ToLower(p.PlayabilityStatus.Reason)
-		for _, marker := range loginUnavailableReasons {
-			if strings.Contains(reason, marker) {
-				return fmt.Errorf("%w (%s)", ErrUnavailable, status)
-			}
-		}
+	case innertube.Refused:
 		return fmt.Errorf("%w: sign-in required (%s)", ErrBlocked, status)
-	case unavailableStatuses[status]:
+	case innertube.Unavailable:
 		return fmt.Errorf("%w (%s)", ErrUnavailable, status)
-	case status == statusUpcoming:
+	case innertube.NotReady:
 		return fmt.Errorf("%w (%s)", ErrNotReady, status)
-	case statusPattern.MatchString(status) && len(status) <= maxStatusBytes:
-		return formatError("player response", "playability status "+status)
-	default:
-		return formatError("player response", "no playability status")
 	}
+	if innertube.StatusToken(status) {
+		return formatError("player response", "playability status "+status)
+	}
+	return formatError("player response", "no playability status")
 }
 
 // chooseTrack picks the caption track YouTube would show for the video's

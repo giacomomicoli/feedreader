@@ -209,6 +209,15 @@ type FetchSuccess struct {
 	// the others are stored read (read_at = FetchedAt), and the flag is
 	// cleared. It is ignored for a feed that is not pending.
 	InitialUnread int
+	// OlderAsRead stores read (read_at = FetchedAt) the entries this fetch
+	// inserts that are published no later than the newest entry the feed
+	// had before it (among those not dated after FetchedAt), and queues no
+	// transcript for them: entries that are
+	// new to the feed but not new on the site (the YouTube fallback lists
+	// older videos than the feed did). It is ignored for a pending
+	// subscription, whose initial-add rule applies, and for a feed without
+	// entries.
+	OlderAsRead bool
 
 	// QueueTranscripts queues the transcript of every entry this fetch
 	// inserts, due at FetchedAt (see NextTranscript), when the global
@@ -341,6 +350,13 @@ const (
 	StatusNoCaptions TranscriptStatus = "no_captions" // checked, no captions
 	StatusFailed     TranscriptStatus = "failed"      // given up on
 )
+
+// InnerTubePause is the pause after YouTube refused an InnerTube request
+// (InnerTubePause).
+type InnerTubePause struct {
+	Until    time.Time // no request before; zero when never paused
+	Refusals int       // requests refused in a row so far
+}
 
 // TranscriptState is what the UI shows about an entry's transcript
 // (TranscriptStateOf): its stored state, and the pause that delays every
@@ -495,8 +511,9 @@ type Store interface {
 	// transaction: error_count = 0, last_error = NULL, last_fetched_at,
 	// next_fetch_at, etag, last_modified, ttl_sec, and non-empty metadata fields.
 	// Entries whose (feed_id, guid) is new are inserted unread, except on a
-	// pending subscription (see FetchSuccess.InitialUnread); otherwise their
-	// transcripts are queued when r.QueueTranscripts is set. Existing ones
+	// pending subscription (see FetchSuccess.InitialUnread) and older ones
+	// with r.OlderAsRead; the transcripts of the unread ones are queued when
+	// r.QueueTranscripts is set. Existing ones
 	// get title, summary_html, url, thumbnail_url and updated_at refreshed;
 	// is_read, is_later, is_favourite, read_at, published_at and fetched_at
 	// are never touched. Returns the number of inserted entries.
@@ -606,6 +623,24 @@ type Store interface {
 	// matches nothing. These are the times at which a feed in that folder
 	// must be fetched besides its regular schedule.
 	IngestMinutes(ctx context.Context, feedID, folderID int64) ([]int, error)
+
+	// --- YouTube fallback ---
+
+	// KnownGUIDs returns which of guids (at most MaxKnownGUIDs, else
+	// ErrInvalid) the feed already has entries for, matched exactly.
+	KnownGUIDs(ctx context.Context, feedID int64, guids []string) (map[string]bool, error)
+	// InnerTubePause returns the pause after YouTube's last refusal of an
+	// InnerTube request, shared by the transcript queue and the YouTube
+	// fallback (the end of the pause TranscriptBlocked or
+	// RecordInnerTubeRefusal stored, and the streak of refusals).
+	InnerTubePause(ctx context.Context) (InnerTubePause, error)
+	// RecordInnerTubeRefusal stores a refusal of a YouTube fallback
+	// request: no InnerTube request (transcripts included) before until,
+	// and one more refusal in a row.
+	RecordInnerTubeRefusal(ctx context.Context, until time.Time) error
+	// RecordInnerTubeAnswer ends the streak of refusals after a YouTube
+	// fallback request that was not refused; the pause's end is kept.
+	RecordInnerTubeAnswer(ctx context.Context) error
 
 	// --- Transcripts ---
 
