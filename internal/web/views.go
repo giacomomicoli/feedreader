@@ -70,6 +70,10 @@ type cardView struct {
 	AbsTime     string
 	ISOTime     string
 	Excerpt     string
+	// HasDetails: the card's Details button opens the entry drawer, which
+	// has something to show: a summary, a fetched transcript, or the
+	// transcript status of a YouTube video.
+	HasDetails  bool
 	Kind        store.Kind
 	IsRead      bool
 	IsLater     bool
@@ -106,6 +110,7 @@ func newCard(e store.EntryView, now time.Time, back string) cardView {
 	if c.Title == "" {
 		c.Title = untitled
 	}
+	c.HasDetails = c.Excerpt != "" || e.HasTranscript || isVideo(e)
 	c.Thumb = httpURL(e.ThumbnailURL)
 	if c.Thumb == "" {
 		c.Thumb = firstImage(e.SummaryHTML)
@@ -142,9 +147,17 @@ func newCard(e store.EntryView, now time.Time, back string) cardView {
 	return c
 }
 
-// entryView is one entry's title, source and full summary (GET
-// /entries/{id}): the content of the layout's entry dialog, or the main pane
-// of a page of its own when the request does not come from htmx.
+// The tabs of an entry's details.
+const (
+	tabSummary    = "summary"
+	tabTranscript = "transcript"
+)
+
+// entryView is one entry's details (GET /entries/{id}): title, source,
+// and the tabs Summary (its full summary) and Transcription (a video's
+// transcript, when one was fetched), with a video's transcript status
+// under the tabs. It is the content of the layout's entry drawer, or the
+// main pane of a page of its own when the request does not come from htmx.
 type entryView struct {
 	ID        int64
 	Title     string
@@ -157,23 +170,58 @@ type entryView struct {
 	AbsTime   string
 	ISOTime   string
 	Summary   string // plain text with its line breaks (parse.Text), or ""
-	Dialog    bool   // rendered into the entry dialog rather than as a page
+	Tab       string // the selected tab: tabSummary or tabTranscript
+	// HasTranscript enables the Transcription tab: the video's transcript
+	// was fetched. Its text is loaded when the tab is first shown, unless
+	// Transcript already holds it (the page with that tab selected).
+	HasTranscript bool
+	Transcript    *transcriptView
+	// Status is the transcript status line of a YouTube video, or nil.
+	Status *transcriptStatusView
+	Drawer bool // rendered into the entry drawer rather than as a page
 }
 
-func newEntryView(e store.EntryView, now time.Time, dialog bool) entryView {
+// transcriptView is a video's transcript in the Transcription tab.
+type transcriptView struct {
+	Label string // "Transcript (en, auto-generated)"
+	Lang  string // language code of Text (lang attribute), or ""
+	Text  string // plain text with its line breaks
+}
+
+// newTranscriptView labels t with its language code and whether YouTube
+// generated it: "Transcript (en, auto-generated)", "Transcript (de)", or
+// "Transcript".
+func newTranscriptView(t store.Transcript) *transcriptView {
+	var notes []string
+	if t.Lang != "" {
+		notes = append(notes, t.Lang)
+	}
+	if t.Generated {
+		notes = append(notes, "auto-generated")
+	}
+	label := "Transcript"
+	if len(notes) > 0 {
+		label += " (" + strings.Join(notes, ", ") + ")"
+	}
+	return &transcriptView{Label: label, Lang: t.Lang, Text: t.Text}
+}
+
+func newEntryView(e store.EntryView, now time.Time, drawer bool) entryView {
 	v := entryView{
-		ID:        e.ID,
-		Title:     e.Title,
-		Href:      httpURL(e.URL),
-		OpenLabel: openLabel(e.FeedKind),
-		Avatar:    newAvatar(e.FeedID, e.FeedTitle, e.FeedIconURL),
-		FeedTitle: e.FeedTitle,
-		FeedHref:  feedHref(e.FeedID, ""),
-		RelTime:   relTime(e.PublishedAt, now),
-		AbsTime:   absTime(e.PublishedAt),
-		ISOTime:   e.PublishedAt.UTC().Format(time.RFC3339),
-		Summary:   parse.Text(e.SummaryHTML, config.SummaryFullMaxChars),
-		Dialog:    dialog,
+		ID:            e.ID,
+		Title:         e.Title,
+		Href:          httpURL(e.URL),
+		OpenLabel:     openLabel(e.FeedKind),
+		Avatar:        newAvatar(e.FeedID, e.FeedTitle, e.FeedIconURL),
+		FeedTitle:     e.FeedTitle,
+		FeedHref:      feedHref(e.FeedID, ""),
+		RelTime:       relTime(e.PublishedAt, now),
+		AbsTime:       absTime(e.PublishedAt),
+		ISOTime:       e.PublishedAt.UTC().Format(time.RFC3339),
+		Summary:       parse.Text(e.SummaryHTML, config.SummaryFullMaxChars),
+		Tab:           tabSummary,
+		HasTranscript: e.HasTranscript,
+		Drawer:        drawer,
 	}
 	if v.Title == "" {
 		v.Title = untitled
@@ -286,6 +334,8 @@ type sidebarView struct {
 	Folders       []folderNav
 	Uncategorized []feedNav
 	HasFeeds      bool
+	// Transcripts is the global transcript switch; nil on error pages.
+	Transcripts *transcriptsSettingView
 	// Unavailable is set on error pages rendered without database access:
 	// the digest, tag and subscription lists are omitted rather than shown
 	// empty.
@@ -306,10 +356,12 @@ type sidebarData struct {
 	digests []store.Digest
 	tags    []store.Tag
 	counts  store.UnreadCounts
+	// transcripts is the global transcript switch (nil when not loaded).
+	transcripts *transcriptsSettingView
 }
 
 func buildSidebar(d sidebarData, cur store.Scope) sidebarView {
-	sv := sidebarView{HasFeeds: len(d.feeds) > 0}
+	sv := sidebarView{HasFeeds: len(d.feeds) > 0, Transcripts: d.transcripts}
 	sv.Nav = []navItem{
 		{Label: "All", Href: scopeHref(store.Scope{Kind: store.ScopeAll}, ""), Icon: "all",
 			Active: cur.Kind == store.ScopeAll, Badge: &badgeView{ID: allBadgeID, N: d.counts.All}},

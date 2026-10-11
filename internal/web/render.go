@@ -90,6 +90,11 @@ func (s *server) loadSidebarData(ctx context.Context) (sidebarData, error) {
 	if d.counts, err = s.store.UnreadCounts(ctx); err != nil {
 		return d, fmt.Errorf("unread counts: %w", err)
 	}
+	sw, err := s.sched.TranscriptSwitchesOf(ctx, 0)
+	if err != nil {
+		return d, fmt.Errorf("transcript switches: %w", err)
+	}
+	d.transcripts = newTranscriptsSetting(sw.Server, sw.Global)
 	return d, nil
 }
 

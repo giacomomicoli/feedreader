@@ -1,11 +1,21 @@
 {{/*
-  One entry's full summary (GET /entries/{id}). For htmx it is the content
-  of the layout's #entry-dialog: static/app.js opens the dialog once htmx
-  has swapped it in, and the Close button's method="dialog" form closes it
-  without a request. Without htmx it is the main pane of a page of its own.
+  One entry's details (GET /entries/{id}, and GET /entries/{id}/transcript
+  with the Transcription tab selected). For htmx it is the content of the
+  layout's #entry-drawer: static/app.js opens the drawer once htmx has
+  swapped it in, and the Close button's method="dialog" form closes it
+  without a request. Without htmx it is the main pane of a page of its own,
+  whose tabs are links to the two addresses.
 
-  The summary is plain text with line breaks, which app.css shows
-  (white-space: pre-line): nothing may stand between it and its tags.
+  The tabs are Summary and Transcription; static/app.js switches them
+  (arrow keys too) and tells the Transcription panel to load the transcript
+  the first time it is shown (the "tab-shown" event), so opening the drawer
+  never ships a long transcript. The Transcription tab is disabled unless a
+  transcript was fetched. A YouTube video's transcript status, with the
+  button that queues it when allowed, is under the tabs.
+
+  The summary and the transcript are plain text with line breaks, which
+  app.css shows (white-space: pre-line): nothing may stand between them
+  and their tags.
 */}}
 {{define "page-entry"}}
 <div class="page page-narrow">
@@ -14,19 +24,55 @@
 {{end}}
 
 {{define "entry-detail"}}
-<article class="entry">
+<article class="entry{{if .Drawer}} entry-drawer-body{{end}}">
   <header class="entry-head">
-    {{if .Dialog}}<h2 class="entry-title" id="entry-dialog-title">{{.Title}}</h2>{{else}}<h1 class="page-title">{{.Title}}</h1>{{end}}
-    <p class="entry-meta">
-      <a class="card-source" href="{{.FeedHref}}">{{template "avatar" .Avatar}}<span>{{.FeedTitle}}</span></a>
-      <time datetime="{{.ISOTime}}" title="{{.AbsTime}}">{{.RelTime}}</time>
-    </p>
+    <div class="entry-head-text">
+      {{if .Drawer}}<h2 class="entry-title" id="entry-drawer-title">{{.Title}}</h2>{{else}}<h1 class="page-title">{{.Title}}</h1>{{end}}
+      <p class="entry-meta">
+        <a class="card-source" href="{{.FeedHref}}">{{template "avatar" .Avatar}}<span>{{.FeedTitle}}</span></a>
+        <time datetime="{{.ISOTime}}" title="{{.AbsTime}}">{{.RelTime}}</time>
+      </p>
+    </div>
+    {{if .Drawer}}<form method="dialog" class="drawer-close"><button class="icon-btn" type="submit" title="Close">{{template "icon" "close"}}<span class="sr-only">Close</span></button></form>{{end}}
   </header>
-  {{if .Summary}}<div class="entry-summary" role="region" aria-label="Summary" tabindex="0"{{if .Dialog}} autofocus{{end}}>{{.Summary}}</div>
-  {{else}}<p class="entry-summary entry-none">This entry has no summary.</p>{{end}}
+  <div class="tabs" role="tablist" aria-label="Entry details">
+    <a class="tab" role="tab" id="tab-summary-{{.ID}}" href="/entries/{{.ID}}" aria-controls="panel-summary-{{.ID}}"
+      {{- if eq .Tab "summary"}} aria-selected="true" tabindex="0"{{if .Drawer}} autofocus{{end}}{{else}} aria-selected="false" tabindex="-1"{{end}}>Summary</a>
+    {{if .HasTranscript -}}
+    <a class="tab" role="tab" id="tab-transcript-{{.ID}}" href="/entries/{{.ID}}/transcript" aria-controls="panel-transcript-{{.ID}}"
+      {{- if eq .Tab "transcript"}} aria-selected="true" tabindex="0"{{else}} aria-selected="false" tabindex="-1"{{end}}>Transcription</a>
+    {{- else -}}
+    <span class="tab" role="tab" id="tab-transcript-{{.ID}}" aria-selected="false" aria-disabled="true" title="No transcript fetched">Transcription</span>
+    {{- end}}
+  </div>
+  {{with .Status}}{{template "transcript-status" .}}{{end}}
+  <div class="tab-panel" role="tabpanel" id="panel-summary-{{.ID}}" aria-labelledby="tab-summary-{{.ID}}" tabindex="0"{{if ne .Tab "summary"}} hidden{{end}}>
+    {{if .Summary}}<div class="entry-summary">{{.Summary}}</div>
+    {{else}}<p class="entry-summary entry-none">This entry has no summary.</p>{{end}}
+  </div>
+  {{if .HasTranscript}}<div class="tab-panel" role="tabpanel" id="panel-transcript-{{.ID}}" aria-labelledby="tab-transcript-{{.ID}}" tabindex="0"
+    {{- if ne .Tab "transcript"}} hidden{{end}}
+    {{- if not .Transcript}} hx-get="/entries/{{.ID}}/transcript" hx-trigger="tab-shown once" hx-swap="innerHTML"{{end}}>
+    {{with .Transcript}}{{template "entry-transcript" .}}{{else}}<p class="muted">Loading the transcript…</p>{{end}}
+  </div>{{end}}
   <div class="actions entry-actions">
     {{if .Href}}<a class="btn btn-primary" href="{{.Href}}" target="_blank" rel="noopener noreferrer">{{.OpenLabel}}</a>{{end}}
-    {{if .Dialog}}<form method="dialog"><button class="btn" type="submit">Close</button></form>{{end}}
+    {{if .Drawer}}<form method="dialog"><button class="btn" type="submit">Close</button></form>{{end}}
   </div>
 </article>
+{{end}}
+
+{{/* The Transcription tab's content (GET /entries/{id}/transcript for htmx). */}}
+{{define "entry-transcript"}}<p class="field-note entry-transcript-label">{{.Label}}</p>
+<div class="entry-transcript-text"{{with .Lang}} lang="{{.}}"{{end}}>{{.Text}}</div>{{end}}
+
+{{/* A video's transcript status under the tabs; the button posts with htmx and gets this fragment back. */}}
+{{define "transcript-status"}}
+<div class="transcript-status" id="transcript-status-{{.EntryID}}" role="status" tabindex="-1">
+  <p class="transcript-status-text">{{.Text}}</p>
+  {{with .Error}}<p class="form-error">{{.}}</p>{{end}}
+  {{if .Button}}<form method="post" action="/entries/{{.EntryID}}/transcript/fetch" hx-post="/entries/{{.EntryID}}/transcript/fetch" hx-target="#transcript-status-{{.EntryID}}" hx-swap="outerHTML">
+    <button class="btn btn-small" type="submit">{{.Button}}</button>
+  </form>{{end}}
+</div>
 {{end}}

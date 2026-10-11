@@ -184,9 +184,9 @@ type card struct {
 	href   string
 	thumb  string
 	status string // "Unread", "Read", "Unwatched", "Watched"
-	// summary is where the Summary link leads: the entry page, which htmx
-	// loads into the entry dialog; "" without a link.
-	summary string
+	// details is where the Details button leads: the entry page, which htmx
+	// loads into the entry drawer; "" without a button.
+	details string
 	read    bool
 	later   bool
 	fav     bool
@@ -217,10 +217,10 @@ func (p *page) cards(t *testing.T) []card {
 		if s := findFirst(n, elemClass("span", "status")); s != nil {
 			c.status = textOf(s)
 		}
-		if a := findFirst(n, elemClass("a", "card-summary")); a != nil {
-			c.summary = attr(a, "href")
-			if hx := attr(a, "hx-get"); hx != c.summary || attr(a, "hx-target") != "#entry-dialog" {
-				t.Errorf("Summary link of entry %d: href %q, hx-get %q, hx-target %q", id, c.summary, hx, attr(a, "hx-target"))
+		if a := findFirst(n, elemClass("a", "card-details")); a != nil {
+			c.details = attr(a, "href")
+			if hx := attr(a, "hx-get"); hx != c.details || attr(a, "hx-target") != "#entry-drawer" {
+				t.Errorf("Details button of entry %d: href %q, hx-get %q, hx-target %q", id, c.details, hx, attr(a, "hx-target"))
 			}
 		}
 		for _, f := range findAll(n, elemClass("span", "flag")) {

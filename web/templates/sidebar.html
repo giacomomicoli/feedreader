@@ -1,5 +1,6 @@
-{{/* Left column: scopes, digests, tags, folders with their feeds, and the
-     new-folder and new-digest forms. */}}
+{{/* Left column: scopes, digests, tags, folders with their feeds, the
+     new-folder and new-digest forms, and the global video transcript
+     switch. */}}
 {{define "sidebar"}}
 <aside class="sidebar">
   <div class="sidebar-head">
@@ -63,8 +64,23 @@
       </div>
       <p class="form-error" id="err-new-digest" aria-live="polite"></p>
     </form>
+    {{with .Transcripts}}{{template "transcripts-setting" .}}{{end}}
   </div>
 </aside>
+{{end}}
+
+{{/* The global video transcript switch: a checkbox and Save, which works
+     without JavaScript; htmx swaps the form for the answer. */}}
+{{define "transcripts-setting"}}
+<form class="setting-switch" id="transcripts-setting" method="post" action="/settings/transcripts" hx-post="/settings/transcripts" hx-target="this" hx-swap="outerHTML">
+  <span class="nav-heading">Video transcripts</span>
+  <div class="input-row">
+    <label class="switch-label"><input type="checkbox" name="transcripts" value="1"{{if .On}} checked{{end}}{{if not .Allowed}} disabled{{end}} aria-describedby="transcripts-note"><span>Fetch transcripts</span></label>
+    {{if .Allowed}}<button class="btn btn-small" type="submit">Save</button>{{end}}
+  </div>
+  <p class="field-note" id="transcripts-note" aria-live="polite">{{if .Saved}}Saved. {{end}}{{.Note}}</p>
+  {{with .Error}}<p class="form-error">{{.}}</p>{{end}}
+</form>
 {{end}}
 
 {{define "feed-nav"}}

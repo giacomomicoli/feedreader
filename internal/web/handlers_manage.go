@@ -44,6 +44,8 @@ type feedSettingsView struct {
 	// Pending is set while the subscription waits for its feed's first
 	// answer: its failures are shown as waiting, not as a broken feed.
 	Pending bool
+	// Transcripts is the transcript panel of a YouTube source, or nil.
+	Transcripts *feedTranscriptsView
 }
 
 // feedForPath loads the feed named by the {id} path value.
@@ -103,6 +105,14 @@ func (s *server) handleFeedSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if !f.NextFetchAt.IsZero() {
 		v.NextFetchRel = relTime(f.NextFetchAt, now)
+	}
+	if f.Kind == store.KindYouTube {
+		sw, err := s.sched.TranscriptSwitchesOf(r.Context(), f.ID)
+		if err != nil {
+			s.fail(w, r, fmt.Errorf("transcript switches of feed %d: %w", f.ID, err))
+			return
+		}
+		v.Transcripts = newFeedTranscripts(f, sw)
 	}
 	s.renderPage(w, r, http.StatusOK, "feed", f.Title, store.Scope{Kind: store.ScopeFeed, ID: f.ID}, v)
 }

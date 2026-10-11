@@ -346,7 +346,7 @@ func TestParse_HostileSummary_BoundedSummaryAndThumbnail(t *testing.T) {
 
 // TestSanitize_FallbackKeepsWhatTheEntryDialogShows: a summary whose HTML
 // cannot be rendered within the limits is stored as its visible text, and
-// keeps as much of it as the entry dialog shows, line breaks included.
+// keeps as much of it as the entry drawer shows, line breaks included.
 func TestSanitize_FallbackKeepsWhatTheEntryDialogShows(t *testing.T) {
 	const paragraphs = 2000
 	in := `<p>` + formattingRun() + strings.Repeat("<p>0123456789", paragraphs)
@@ -356,7 +356,7 @@ func TestSanitize_FallbackKeepsWhatTheEntryDialogShows(t *testing.T) {
 	}
 	got := Text(out, config.SummaryFullMaxChars)
 	if n := utf8.RuneCountInString(got); n < config.SummaryFullMaxChars || !strings.HasSuffix(got, ellipsis) {
-		t.Errorf("fallback keeps %d runes of text, want the %d the entry dialog shows", n, config.SummaryFullMaxChars)
+		t.Errorf("fallback keeps %d runes of text, want the %d the entry drawer shows", n, config.SummaryFullMaxChars)
 	}
 	if !strings.HasPrefix(got, "0123456789\n\n0123456789") {
 		t.Errorf("fallback lost the paragraph breaks: %.60q", got)
