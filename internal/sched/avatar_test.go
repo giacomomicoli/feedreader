@@ -257,7 +257,9 @@ func TestPoll_NoAvatarLookup(t *testing.T) {
 			})
 			s := newClockedScheduler(t, st, fetcher, newClock(t0))
 			pollOnce(t, s, st, f.ID)
-			if n := fetcher.CallCount(); n != 1 {
+			// The YouTube fallback after a failed poll is tested on its own
+			// (fallback_test.go).
+			if n := len(feedRequests(fetcher.Calls())); n != 1 {
 				t.Errorf("%d requests; want only the feed's", n)
 			}
 			if got := getFeed(t, st, f.ID); got.IconURL == wantAvatar(t) {

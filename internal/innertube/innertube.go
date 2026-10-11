@@ -45,6 +45,14 @@ const (
 	// key or cookies.
 	AndroidName    = "ANDROID"
 	AndroidVersion = "20.10.38"
+	// WebName and WebVersion are YouTube's web client, which answers a
+	// browse request for a channel's tab and a player request with the
+	// video's publication date. The version is built in: YouTube accepts
+	// versions years old, so no page is fetched to learn the current one
+	// (and no API key is ever read). A version it stops accepting is
+	// answered 400 (ErrRejected); bump it with a release.
+	WebName    = "WEB"
+	WebVersion = "2.20261009.01.00"
 )
 
 // Profile is a client profile: clientName and clientVersion as a request's
@@ -56,6 +64,9 @@ type Profile struct {
 
 // Android is the profile of YouTube's Android app (AndroidName).
 var Android = Profile{Name: AndroidName, Version: AndroidVersion}
+
+// Web is the profile of YouTube's web client (WebName).
+var Web = Profile{Name: WebName, Version: WebVersion}
 
 // requestContext is the context member every request carries.
 type requestContext struct {

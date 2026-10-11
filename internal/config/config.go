@@ -147,6 +147,32 @@ const (
 	TranscriptMaxQueued = 7 * 24 * time.Hour
 )
 
+// YouTube fallback. When the feed of a YouTube channel (or of its videos
+// or Shorts list) answers 404 or 5xx, the videos it would list are read
+// from YouTube's web API instead (FR_YOUTUBE_FALLBACK): one request for
+// the channel's list per tab, then one for each video not stored yet.
+// These bound one fallback, in a poll or in the add flow.
+const (
+	// YouTubeFallbackMaxBrowse bounds the list requests of one fallback:
+	// one per tab, and a channel followed with all its uploads has two
+	// (videos and Shorts).
+	YouTubeFallbackMaxBrowse = 2
+	// YouTubeFallbackMaxIDs bounds the videos taken from one tab: the
+	// newest, as many as a channel's feed lists.
+	YouTubeFallbackMaxIDs = 15
+	// YouTubeFallbackMaxVideos bounds the video requests of one fallback,
+	// made only for videos not stored yet: as many as a feed lists.
+	YouTubeFallbackMaxVideos = 15
+	// YouTubeFallbackSpacing is the least time between two fallback
+	// requests, across all feeds: they are made one after another.
+	YouTubeFallbackSpacing = 1 * time.Second
+	// YouTubeFallbackAddTimeout bounds a fallback of the add flow (its
+	// preview, or a subscription without one), so that the page still
+	// answers within its own deadline, with the offer to subscribe anyway
+	// when the fallback did not finish.
+	YouTubeFallbackAddTimeout = 30 * time.Second
+)
+
 // Config is the runtime configuration.
 type Config struct {
 	Listen              string        // FR_LISTEN
@@ -167,6 +193,11 @@ type Config struct {
 	// (off until turned on) and the source's own switch are on too. See
 	// the Transcripts constants.
 	Transcripts bool
+	// YouTubeFallback reads a YouTube channel's videos from YouTube's web
+	// API when its feed answers 404 or 5xx (FR_YOUTUBE_FALLBACK, true by
+	// default). Set to false, a failing feed is only retried. See the
+	// YouTube fallback constants.
+	YouTubeFallback bool
 }
 
 // DefaultUserAgent returns "<app-name>/<version> (+<repo-url>)".
@@ -186,6 +217,7 @@ func Default() Config {
 		UserAgent:           DefaultUserAgent(),
 		LogLevel:            slog.LevelInfo,
 		Transcripts:         true,
+		YouTubeFallback:     true,
 	}
 }
 
@@ -258,6 +290,14 @@ func fromMap(vals map[string]string) (Config, error) {
 			errs = append(errs, fmt.Errorf("FR_TRANSCRIPTS: must be true or false"))
 		} else {
 			c.Transcripts = b
+		}
+	}
+	if v := vals["FR_YOUTUBE_FALLBACK"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("FR_YOUTUBE_FALLBACK: must be true or false"))
+		} else {
+			c.YouTubeFallback = b
 		}
 	}
 	for h := range strings.SplitSeq(vals["FR_ALLOWED_HOSTS"], ",") {

@@ -313,6 +313,50 @@ func TestFetch_BodySizeCap(t *testing.T) {
 	}
 }
 
+// TestFetch_RequestMaxBytes: a request's MaxBytes lowers the cap for that
+// request only (a gzip bomb is cut at it too); it never raises the
+// client's cap, and zero or less keeps it.
+func TestFetch_RequestMaxBytes(t *testing.T) {
+	const client, lower = 4096, 1024
+	bomb := gzipBytes(t, make([]byte, 256<<10))
+	tests := []struct {
+		name     string
+		size     int
+		gzip     bool
+		maxBytes int64
+		wantErr  string // "" = accepted
+	}{
+		{"at the request cap", lower, false, lower, ""},
+		{"over the request cap", lower + 1, false, lower, "response body exceeds size limit of 1 KiB"},
+		{"bomb over the request cap", 0, true, lower, "response body exceeds size limit of 1 KiB"},
+		{"no request cap", client, false, 0, ""},
+		{"negative request cap", client, false, -1, ""},
+		{"request cap above the client's", client + 1, false, 2 * client, "response body exceeds size limit of 4 KiB"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if tt.gzip {
+					w.Header().Set("Content-Encoding", "gzip")
+					w.Write(bomb)
+					return
+				}
+				w.Write(bytes.Repeat([]byte("a"), tt.size))
+			})
+			res, err := newTestClient(t, client).Fetch(t.Context(), Request{URL: srv.URL, MaxBytes: tt.maxBytes})
+			if tt.wantErr == "" {
+				if err != nil || len(res.Body) != tt.size {
+					t.Fatalf("Fetch = %v; want %d bytes", err, tt.size)
+				}
+				return
+			}
+			if !errors.Is(err, ErrTooLarge) || !strings.HasSuffix(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want ErrTooLarge ending %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestFetch_UnexpectedStatusReturnsStatusError(t *testing.T) {
 	for _, code := range []int{
 		http.StatusNotFound, http.StatusGone, http.StatusTooManyRequests,
