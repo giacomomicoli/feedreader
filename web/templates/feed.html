@@ -54,6 +54,8 @@
     </form>
   </section>
 
+  {{with .Transcripts}}{{template "feed-transcripts" .}}{{end}}
+
   <section class="panel">
     <h2>Fetch status</h2>
     <dl class="facts">
@@ -82,4 +84,20 @@
     </div>
   </section>
 </div>
+{{end}}
+
+{{/* A YouTube source's transcript switch; htmx swaps the panel for the answer. */}}
+{{define "feed-transcripts"}}
+<section class="panel" id="feed-transcripts">
+  <h2>Video transcripts</h2>
+  <form class="stack" method="post" action="/feeds/{{.FeedID}}/transcripts" hx-post="/feeds/{{.FeedID}}/transcripts" hx-target="#feed-transcripts" hx-swap="outerHTML">
+    <div class="input-row">
+      <label class="switch-label"><input type="checkbox" name="transcripts" value="1"{{if .On}} checked{{end}} aria-describedby="feed-transcripts-note"><span>Fetch transcripts for this source</span></label>
+      <button class="btn" type="submit">Save</button>
+    </div>
+    <p class="field-note" id="feed-transcripts-note" aria-live="polite">{{if .Saved}}Saved. {{end}}{{.Note}}</p>
+    <p class="field-note">Only videos found new from now on are fetched; for an older one, use Fetch transcript in its details.</p>
+    {{with .PendingNote}}<p class="field-note">{{.}}</p>{{end}}
+  </form>
+</section>
 {{end}}

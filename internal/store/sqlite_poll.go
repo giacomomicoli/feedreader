@@ -85,20 +85,21 @@ func newestN(list []NewEntry, n int) map[int]bool {
 }
 
 // upsertEntries inserts new (feed_id, guid) pairs and refreshes existing
-// ones, returning the indices in list of the inserted entries. New entries
-// are unread, or read (read_at = fetchedAt) when asRead is set. Entries are
-// processed from last to first so that, among equal published_at values, the
-// earlier slice position gets the higher id and sorts first in the grid.
+// ones, returning the indices in list of the inserted entries and their row
+// ids. New entries are unread, or read (read_at = fetchedAt) when asRead is
+// set. Entries are processed from last to first so that, among equal
+// published_at values, the earlier slice position gets the higher id and
+// sorts first in the grid.
 func upsertEntries(ctx context.Context, tx *sql.Tx, feedID int64, list []NewEntry, fetchedAt time.Time,
-	asRead bool) (inserted []int, err error) {
+	asRead bool) (inserted []int, ids []int64, err error) {
 	ins, err := tx.PrepareContext(ctx, insertEntrySQL)
 	if err != nil {
-		return nil, fmt.Errorf("prepare entry insert: %w", err)
+		return nil, nil, fmt.Errorf("prepare entry insert: %w", err)
 	}
 	defer ins.Close()
 	upd, err := tx.PrepareContext(ctx, refreshEntrySQL)
 	if err != nil {
-		return nil, fmt.Errorf("prepare entry refresh: %w", err)
+		return nil, nil, fmt.Errorf("prepare entry refresh: %w", err)
 	}
 	defer upd.Close()
 
@@ -110,22 +111,26 @@ func upsertEntries(ctx context.Context, tx *sql.Tx, feedID int64, list []NewEntr
 		e := list[i]
 		res, err := ins.ExecContext(ctx, entryInsertArgs(feedID, e, fetchedAt, asRead, readAt)...)
 		if err != nil {
-			return nil, fmt.Errorf("insert entry %q: %w", e.GUID, classify(err))
+			return nil, nil, fmt.Errorf("insert entry %q: %w", e.GUID, classify(err))
 		}
 		n, err := res.RowsAffected()
 		if err != nil {
-			return nil, fmt.Errorf("insert entry %q: %w", e.GUID, err)
+			return nil, nil, fmt.Errorf("insert entry %q: %w", e.GUID, err)
 		}
 		if n > 0 {
-			inserted = append(inserted, i)
+			id, err := res.LastInsertId()
+			if err != nil {
+				return nil, nil, fmt.Errorf("insert entry %q: %w", e.GUID, err)
+			}
+			inserted, ids = append(inserted, i), append(ids, id)
 			continue
 		}
 		if _, err := upd.ExecContext(ctx, e.Title, nullStr(e.SummaryHTML), nullStr(e.URL),
 			nullStr(e.ThumbnailURL), nullUnix(e.UpdatedAt), feedID, e.GUID); err != nil {
-			return nil, fmt.Errorf("refresh entry %q: %w", e.GUID, err)
+			return nil, nil, fmt.Errorf("refresh entry %q: %w", e.GUID, err)
 		}
 	}
-	return inserted, nil
+	return inserted, ids, nil
 }
 
 // markNewestUnread applies the initial-add rule to the entries a fetch of a
@@ -229,6 +234,12 @@ func (s *SQLite) AdvanceNextFetch(ctx context.Context, id int64, at time.Time) (
 // inserted entries follow the initial-add rule instead (see
 // FetchSuccess.InitialUnread) and the flag is cleared, in the same
 // transaction: a failed write leaves the feed pending.
+//
+// Otherwise, with r.QueueTranscripts, the transcript of every inserted entry
+// is queued in the same transaction, due at once (as of the fetch), when the
+// global transcript setting and the feed's switch are on. A pending
+// subscription's first success never queues: it is stored as an initial
+// add, and initial adds never queue.
 func (s *SQLite) RecordFetchSuccess(ctx context.Context, r FetchSuccess) (int, error) {
 	fetchedAt := r.FetchedAt
 	if fetchedAt.IsZero() {
@@ -256,13 +267,16 @@ func (s *SQLite) RecordFetchSuccess(ctx context.Context, r FetchSuccess) (int, e
 		if err != nil {
 			return err
 		}
-		added, err := upsertEntries(ctx, tx, r.FeedID, list, fetchedAt, pending)
+		added, ids, err := upsertEntries(ctx, tx, r.FeedID, list, fetchedAt, pending)
 		if err != nil {
 			return err
 		}
 		inserted = len(added)
 		if pending {
 			return markNewestUnread(ctx, tx, r.FeedID, list, added, r.InitialUnread)
+		}
+		if r.QueueTranscripts {
+			return queueTranscripts(ctx, tx, r.FeedID, ids, fetchedAt)
 		}
 		return nil
 	})

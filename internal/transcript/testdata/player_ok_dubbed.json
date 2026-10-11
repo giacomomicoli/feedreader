@@ -1,0 +1,117 @@
+{
+ "responseContext": {
+  "visitorData": "synthetic"
+ },
+ "playabilityStatus": {
+  "status": "OK",
+  "playableInEmbed": true
+ },
+ "streamingData": {
+  "adaptiveFormats": [
+   {
+    "itag": 1,
+    "audioTrack": {
+     "id": "it.10",
+     "displayName": "Italian",
+     "isAutoDubbed": true
+    }
+   }
+  ]
+ },
+ "captions": {
+  "playerCaptionsTracklistRenderer": {
+   "captionTracks": [
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=vid00000001&ei=synthetic&caps=asr&opi=1&xoaf=5&xowf=1&hl=en&ip=0.0.0.0&ipbits=0&expire=9999999999&sparams=ip,ipbits,expire,v,ei,caps,opi,xoaf&signature=AB12.CD34&key=yt8&kind=asr&lang=it&variant=timing-optimized&fmt=srv3",
+     "name": {
+      "runs": [
+       {
+        "text": "Italian (auto-generated)"
+       }
+      ]
+     },
+     "vssId": "a.it",
+     "languageCode": "it",
+     "kind": "asr",
+     "isTranslatable": true,
+     "trackName": ""
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=vid00000001&ei=synthetic&caps=asr&opi=1&xoaf=5&xowf=1&hl=en&ip=0.0.0.0&ipbits=0&expire=9999999999&sparams=ip,ipbits,expire,v,ei,caps,opi,xoaf&signature=AB12.CD34&key=yt8&lang=en&fmt=srv3",
+     "name": {
+      "runs": [
+       {
+        "text": "English"
+       }
+      ]
+     },
+     "vssId": ".en",
+     "languageCode": "en",
+     "isTranslatable": true,
+     "trackName": ""
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=vid00000001&ei=synthetic&caps=asr&opi=1&xoaf=5&xowf=1&hl=en&ip=0.0.0.0&ipbits=0&expire=9999999999&sparams=ip,ipbits,expire,v,ei,caps,opi,xoaf&signature=AB12.CD34&key=yt8&kind=asr&lang=en&fmt=srv3",
+     "name": {
+      "runs": [
+       {
+        "text": "English (auto-generated)"
+       }
+      ]
+     },
+     "vssId": "a.en",
+     "languageCode": "en",
+     "kind": "asr",
+     "isTranslatable": true,
+     "trackName": ""
+    }
+   ],
+   "audioTracks": [
+    {
+     "captionTrackIndices": [
+      1,
+      2,
+      0
+     ],
+     "defaultCaptionTrackIndex": 0,
+     "hasDefaultTrack": true,
+     "audioTrackId": "it.10",
+     "captionsInitialState": "CAPTIONS_INITIAL_STATE_OFF_RECOMMENDED"
+    },
+    {
+     "captionTrackIndices": [
+      1,
+      2,
+      0
+     ],
+     "defaultCaptionTrackIndex": 0,
+     "hasDefaultTrack": true,
+     "audioTrackId": "en-US.4",
+     "captionsInitialState": "CAPTIONS_INITIAL_STATE_OFF_RECOMMENDED"
+    }
+   ],
+   "translationLanguages": [
+    {
+     "languageCode": "de",
+     "languageName": {
+      "runs": [
+       {
+        "text": "German"
+       }
+      ]
+     }
+    }
+   ],
+   "defaultAudioTrackIndex": 1,
+   "defaultTranslationSourceTrackIndices": [
+    1
+   ]
+  }
+ },
+ "videoDetails": {
+  "videoId": "vid00000001",
+  "title": "Synthetic video",
+  "lengthSeconds": "30"
+ },
+ "trackingParams": "synthetic"
+}

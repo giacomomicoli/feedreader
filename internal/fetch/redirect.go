@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,9 +12,14 @@ import (
 )
 
 // checkRedirect is the http.Client redirect policy: a redirect loop or more
-// than config.MaxRedirects hops is an error. via holds the requests already
-// made, oldest first, so len(via) is the number of the hop being attempted.
+// than config.MaxRedirects hops is an error, and the redirect of a POST or
+// of a request with Request.NoRedirects is not followed but returned as the
+// response. via holds the requests already made, oldest first, so len(via)
+// is the number of the hop being attempted.
 func checkRedirect(req *http.Request, via []*http.Request) error {
+	if startedAsPost(via) || refusesRedirects(req.Context()) {
+		return http.ErrUseLastResponse
+	}
 	if s := req.URL.Scheme; s != "http" && s != "https" {
 		return &reasonError{
 			msg:    fmt.Sprintf("refused redirect to a %s: URL; %v", s, ErrScheme),
@@ -41,6 +47,23 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 		}
 	}
 	return nil
+}
+
+// noRedirectsKey marks the context of a request with Request.NoRedirects.
+// net/http gives the requests of a redirect chain the context of the first
+// one, so checkRedirect finds the mark on every hop.
+type noRedirectsKey struct{}
+
+// withoutRedirects returns ctx marked for a request whose redirects are
+// not followed.
+func withoutRedirects(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRedirectsKey{}, true)
+}
+
+// refusesRedirects reports whether ctx is marked by withoutRedirects.
+func refusesRedirects(ctx context.Context) bool {
+	refused, _ := ctx.Value(noRedirectsKey{}).(bool)
+	return refused
 }
 
 // urlKey identifies a URL for loop detection: the fragment is never sent and

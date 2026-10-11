@@ -222,23 +222,37 @@ func (s *server) handleEntries(w http.ResponseWriter, r *http.Request) {
 	s.renderFragment(w, r, http.StatusOK, "grid-items", g, false)
 }
 
-// handleEntry shows one entry's full summary: the content of the layout's
-// entry dialog for htmx (the card's Summary link), a page of its own
-// otherwise, so the link also works without JavaScript. It is read-only:
-// opening a summary never marks the entry read.
+// handleEntry shows one entry's details: the content of the layout's
+// entry drawer for htmx (the card's Details button), a page of its own
+// otherwise, so the button also works without JavaScript. It is read-only:
+// opening the details never marks the entry read.
 func (s *server) handleEntry(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	e, err := s.store.GetEntry(r.Context(), id)
+	s.renderEntry(w, r, id, tabSummary, nil)
+}
+
+// renderEntry renders entry id's details with tab selected; t is the
+// transcript shown in that tab when it is the Transcription tab.
+func (s *server) renderEntry(w http.ResponseWriter, r *http.Request, id int64, tab string, t *transcriptView) {
+	ctx := r.Context()
+	e, err := s.store.GetEntry(ctx, id)
 	if err != nil {
 		s.fail(w, r, fmt.Errorf("get entry %d: %w", id, err))
 		return
 	}
 	v := newEntryView(e, s.now(), isHTMX(r))
-	if v.Dialog {
+	v.Tab, v.Transcript = tab, t
+	if isVideo(e) {
+		if v.Status, err = s.transcriptStatusOf(ctx, e); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	if v.Drawer {
 		s.renderFragment(w, r, http.StatusOK, "entry-detail", v, false)
 		return
 	}

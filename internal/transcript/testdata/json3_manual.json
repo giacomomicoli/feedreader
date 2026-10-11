@@ -1,0 +1,41 @@
+{
+ "wireMagic": "pb3",
+ "pens": [
+  {}
+ ],
+ "wsWinStyles": [
+  {}
+ ],
+ "wpWinPositions": [
+  {}
+ ],
+ "events": [
+  {
+   "tStartMs": 500,
+   "dDurationMs": 1000,
+   "segs": [
+    {
+     "utf8": "Synthetic line one\nwrapped"
+    }
+   ]
+  },
+  {
+   "tStartMs": 1600,
+   "dDurationMs": 900,
+   "segs": [
+    {
+     "utf8": "[Narrator] second cue."
+    }
+   ]
+  },
+  {
+   "tStartMs": 2600,
+   "dDurationMs": 900,
+   "segs": [
+    {
+     "utf8": ">> A new speaker &amp; <i>styled</i> words"
+    }
+   ]
+  }
+ ]
+}

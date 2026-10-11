@@ -14,6 +14,7 @@ import (
 
 	"modernc.org/sqlite"
 
+	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/migrations"
 )
 
@@ -440,4 +441,200 @@ func TestMigrate_FromV1MergesUnicodeCaseVariantNamesAndKeepsEverything(t *testin
 		t.Errorf("new entry id = %d, want > 5 (the deleted maximum)", id)
 	}
 	foreignKeysOnEveryConn(t, db, 4)
+}
+
+// TestMigrate_From0005AddsTranscripts upgrades a populated database from
+// before transcripts (digests included): everything is kept, nothing is
+// queued for the entries already stored, every source has its transcript
+// switch on, the global setting is off (so no request is made until the
+// user turns it on), and the new table follows its entries.
+func TestMigrate_From0005AddsTranscripts(t *testing.T) {
+	db := rawDB(t)
+	migrateTo(t, db, 5)
+	for _, q := range []string{
+		`INSERT INTO folders (id, name, name_key, position) VALUES (1, 'Videos', 'videos', 0)`,
+		`INSERT INTO feeds (id, kind, url, title, folder_id, created_at, ttl_sec, error_count, last_error) VALUES
+			(1, 'youtube', 'https://www.youtube.com/feeds/videos.xml?channel_id=UCsynthetic000000000000', 'Channel', 1, 0, 0, 0, NULL),
+			(2, 'rss', 'https://b.example/feed', 'Blog', NULL, 0, 3600, 2, 'HTTP 503')`,
+		`INSERT INTO entries (id, feed_id, guid, url, title, published_at, fetched_at, is_read, is_later) VALUES
+			(1, 1, 'yt:video:aaaaaaaaaaa', 'https://www.youtube.com/watch?v=aaaaaaaaaaa', 'V1', 10, 10, 1, 0),
+			(7, 1, 'yt:video:bbbbbbbbbbb', 'https://www.youtube.com/watch?v=bbbbbbbbbbb', 'V2', 20, 20, 0, 1),
+			(9, 2, 'p1', 'https://b.example/p1', 'P1', 30, 30, 0, 0)`,
+		`INSERT INTO tags (id, name, name_key) VALUES (1, 'talks', 'talks')`,
+		`INSERT INTO entry_tags (entry_id, tag_id) VALUES (7, 1)`,
+		`INSERT INTO digests (id, name, name_key, ingest_minute, position, created_at) VALUES (1, 'Morning', 'morning', 420, 0, 0)`,
+		`INSERT INTO digest_feeds (digest_id, feed_id) VALUES (1, 2)`,
+		`INSERT INTO digest_folders (digest_id, folder_id) VALUES (1, 1)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := migrate(t.Context(), db, migrations.FS); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if v := userVersion(t, db); v < 7 {
+		t.Fatalf("user_version = %d, want at least 7", v)
+	}
+	s := &SQLite{db: db, now: func() time.Time { return t0 }}
+	ctx := t.Context()
+
+	var entries, entryTags, transcripts, digestRows int
+	mustNoErr(t, db.QueryRow(`SELECT (SELECT count(*) FROM entries), (SELECT count(*) FROM entry_tags),
+		(SELECT count(*) FROM entry_transcripts), (SELECT count(*) FROM digest_feeds) + (SELECT count(*) FROM digest_folders)`).Scan(
+		&entries, &entryTags, &transcripts, &digestRows))
+	if entries != 3 || entryTags != 1 || transcripts != 0 || digestRows != 2 {
+		t.Errorf("after migrating: %d entries, %d entry tags, %d transcripts, %d digest memberships; want 3, 1, 0, 2",
+			entries, entryTags, transcripts, digestRows)
+	}
+	e7, err := s.GetEntry(ctx, 7)
+	mustNoErr(t, err)
+	if e7.IsRead || !e7.IsLater || e7.FeedTitle != "Channel" || !slices.Equal(tagNames(e7.Tags), []string{"talks"}) {
+		t.Errorf("entry 7 after migrating = %+v", e7)
+	}
+	if f, err := s.GetFeed(ctx, 2); err != nil || f.TTLSec != 3600 || f.ErrorCount != 2 || f.LastError != "HTTP 503" {
+		t.Errorf("feed 2 after migrating = %+v, %v", f, err)
+	}
+	if d, err := s.GetDigest(ctx, 1); err != nil || !d.HasIngest || d.IngestMinute != 420 {
+		t.Errorf("digest 1 after migrating = %+v, %v", d, err)
+	}
+	for _, id := range []int64{1, 2} {
+		if on, err := s.FeedTranscripts(ctx, id); err != nil || !on {
+			t.Errorf("FeedTranscripts(%d) after migrating = %v, %v; want on", id, on, err)
+		}
+	}
+	if on, err := s.TranscriptsSetting(ctx); err != nil || on {
+		t.Errorf("TranscriptsSetting after migrating = %v, %v; want off", on, err)
+	}
+	if _, ok, err := s.NextTranscript(ctx); ok || err != nil {
+		t.Errorf("NextTranscript after migrating = %v, %v; want nothing queued", ok, err)
+	}
+
+	// With the global setting still off a poll queues nothing.
+	if n, err := s.RecordFetchSuccess(ctx, FetchSuccess{FeedID: 1, FetchedAt: t0, QueueTranscripts: true,
+		Entries: []NewEntry{entryAt("yt:video:ccccccccccc", t0)}}); err != nil || n != 1 {
+		t.Fatalf("RecordFetchSuccess = %d, %v", n, err)
+	}
+	if _, ok, err := s.NextTranscript(ctx); ok || err != nil {
+		t.Errorf("NextTranscript after a poll with the setting off = %v, %v; want nothing queued", ok, err)
+	}
+
+	// Turned on, a poll queues its new video; the transcript works end to
+	// end and goes with its feed.
+	mustNoErr(t, s.SetTranscriptsSetting(ctx, true, t0))
+	n, err := s.RecordFetchSuccess(ctx, FetchSuccess{FeedID: 1, FetchedAt: t0, QueueTranscripts: true,
+		Entries: []NewEntry{entryAt("yt:video:ddddddddddd", t0)}})
+	if err != nil || n != 1 {
+		t.Fatalf("RecordFetchSuccess = %d, %v", n, err)
+	}
+	job, ok, err := s.NextTranscript(ctx)
+	if err != nil || !ok || job.EntryID <= 10 || !job.QueuedAt.Equal(t0) || !job.DueAt.Equal(t0) {
+		t.Fatalf("NextTranscript = %+v, %v, %v; want the new entry (id > 10), queued and due at the poll", job, ok, err)
+	}
+	retryAt := t0.Add(time.Hour)
+	mustNoErr(t, s.RecordTranscript(ctx, job.EntryID, TranscriptResult{Outcome: TranscriptRetry, RetryAt: retryAt,
+		Reason: ReasonError, Requested: true}))
+	if job, ok, err = s.NextTranscript(ctx); err != nil || !ok || job.Attempts != 1 || !job.DueAt.Equal(retryAt) {
+		t.Fatalf("NextTranscript after a retry = %+v, %v, %v; want 1 attempt, due at %v", job, ok, err, retryAt)
+	}
+	pausedUntil := retryAt.Add(time.Hour)
+	mustNoErr(t, s.RecordTranscript(ctx, job.EntryID, TranscriptResult{Outcome: TranscriptBlocked, RetryAt: pausedUntil,
+		Reason: ReasonRefused, Requested: true}))
+	if job, ok, err = s.NextTranscript(ctx); err != nil || !ok || !job.DueAt.Equal(pausedUntil) {
+		t.Fatalf("NextTranscript after a refusal = %+v, %v, %v; want it due at %v", job, ok, err, pausedUntil)
+	}
+	mustNoErr(t, s.RecordTranscript(ctx, job.EntryID, TranscriptResult{Outcome: TranscriptOK,
+		Transcript: Transcript{Lang: "en", Text: "Hello"}, Requested: true}))
+	if tr, err := s.GetTranscript(ctx, job.EntryID); err != nil || tr.Text != "Hello" {
+		t.Errorf("GetTranscript = %+v, %v", tr, err)
+	}
+	mustNoErr(t, s.DeleteFeed(ctx, 1))
+	mustNoErr(t, db.QueryRow(`SELECT count(*) FROM entry_transcripts`).Scan(&transcripts))
+	if transcripts != 0 {
+		t.Errorf("transcripts after unsubscribing = %d, want 0", transcripts)
+	}
+	foreignKeysOnEveryConn(t, db, 4)
+}
+
+// TestMigrate_From0006AddsTranscripts upgrades a populated database at
+// version 6 (with a pending subscription) to 7: everything is kept, the
+// pending flag included, nothing is queued, and the pending feed's first
+// success still queues nothing while the next one does.
+func TestMigrate_From0006AddsTranscripts(t *testing.T) {
+	db := rawDB(t)
+	migrateTo(t, db, 6)
+	for _, q := range []string{
+		`INSERT INTO feeds (id, kind, url, title, created_at, ttl_sec, error_count, last_error, initial_pending) VALUES
+			(1, 'youtube', 'https://www.youtube.com/feeds/videos.xml?channel_id=UCsynthetic000000000000', 'Pending', 0, 0, 2, 'HTTP 404', 1),
+			(2, 'rss', 'https://b.example/feed', 'Blog', 0, 0, 0, NULL, 0)`,
+		`INSERT INTO entries (id, feed_id, guid, url, title, published_at, fetched_at, is_read) VALUES
+			(3, 2, 'p1', 'https://b.example/p1', 'P1', 30, 30, 0)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := migrate(t.Context(), db, migrations.FS); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if v := userVersion(t, db); v < 7 {
+		t.Fatalf("user_version = %d, want at least 7", v)
+	}
+	s := &SQLite{db: db, now: func() time.Time { return t0 }}
+	ctx := t.Context()
+	f, err := s.GetFeed(ctx, 1)
+	if err != nil || !f.InitialPending || f.ErrorCount != 2 || f.LastError != "HTTP 404" {
+		t.Fatalf("pending feed after migrating = %+v, %v", f, err)
+	}
+	if on, err := s.FeedTranscripts(ctx, 1); err != nil || !on {
+		t.Errorf("FeedTranscripts(1) = %v, %v; want on", on, err)
+	}
+	if on, err := s.TranscriptsSetting(ctx); err != nil || on {
+		t.Errorf("TranscriptsSetting = %v, %v; want off", on, err)
+	}
+	mustNoErr(t, s.SetTranscriptsSetting(ctx, true, t0))
+	if _, err := s.RecordFetchSuccess(ctx, FetchSuccess{FeedID: 1, FetchedAt: t0, QueueTranscripts: true,
+		InitialUnread: config.InitialUnread, Entries: []NewEntry{entryAt("yt:video:aaaaaaaaaaa", t0)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.NextTranscript(ctx); ok || err != nil {
+		t.Errorf("the pending feed's first success queued (%v, %v)", ok, err)
+	}
+	if f, _ := s.GetFeed(ctx, 1); f.InitialPending {
+		t.Error("still pending after its first success")
+	}
+	if _, err := s.RecordFetchSuccess(ctx, FetchSuccess{FeedID: 1, FetchedAt: t0, QueueTranscripts: true,
+		Entries: []NewEntry{entryAt("yt:video:bbbbbbbbbbb", t0)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.NextTranscript(ctx); !ok || err != nil {
+		t.Errorf("the next success queued nothing (%v, %v)", ok, err)
+	}
+	foreignKeysOnEveryConn(t, db, 4)
+}
+
+// TestMigrate_ToleratesAGapInVersions: versions need not be consecutive (a
+// migration number may be taken by a branch merged later); every file above
+// the database's version is applied in order, and a database already at the
+// higher number is left alone.
+func TestMigrate_ToleratesAGapInVersions(t *testing.T) {
+	fsys := fstest.MapFS{
+		"0001_a.sql": {Data: []byte(`CREATE TABLE a (x INTEGER);`)},
+		"0003_c.sql": {Data: []byte(`CREATE TABLE c (x INTEGER);`)},
+	}
+	db := rawDB(t)
+	if err := migrate(t.Context(), db, fsys); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if v := userVersion(t, db); v != 3 {
+		t.Errorf("user_version = %d, want 3", v)
+	}
+	for _, table := range []string{"a", "c"} {
+		if !tableExists(t, db, table) {
+			t.Errorf("table %s missing", table)
+		}
+	}
+	if err := migrate(t.Context(), db, fsys); err != nil {
+		t.Errorf("migrate again: %v", err)
+	}
 }

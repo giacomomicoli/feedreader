@@ -25,8 +25,11 @@ import (
 
 // fakeSched records refreshes and implements Preview/Subscribe against the
 // real store, so subscribed feeds show up in the UI exactly as in production.
+// The transcript switches and requests go to a real scheduler over the same
+// store (never run, so it makes no request): the rules are production's.
 type fakeSched struct {
 	st store.Store
+	*sched.Scheduler
 
 	mu           sync.Mutex
 	refreshed    []int64
@@ -159,10 +162,10 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	fs := &fakeSched{st: st, previews: map[string]*sched.Preview{}, previewErr: map[string]error{},
-		entries: map[string][]store.NewEntry{}}
-	fr := &fakeResolver{results: map[string]*resolve.Result{}, errs: map[string]error{}}
 	cfg := config.Default()
+	fs := &fakeSched{st: st, previews: map[string]*sched.Preview{}, previewErr: map[string]error{},
+		entries: map[string][]store.NewEntry{}, Scheduler: sched.New(st, nil, cfg, nil)}
+	fr := &fakeResolver{results: map[string]*resolve.Result{}, errs: map[string]error{}}
 	srv, err := newServer(Deps{Config: cfg, Store: st, Sched: fs, Resolver: fr})
 	if err != nil {
 		t.Fatalf("new server: %v", err)

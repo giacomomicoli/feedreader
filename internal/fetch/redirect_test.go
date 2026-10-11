@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // hop is one redirect served by redirectServer.
@@ -192,5 +194,60 @@ func TestFetch_RedirectErrors(t *testing.T) {
 				t.Errorf("message = %q, want %q", err.Error(), want)
 			}
 		})
+	}
+}
+
+// TestFetch_NoRedirectsReturnsTheRedirect: a GET with NoRedirects gets a
+// redirect back as a StatusError, with its Retry-After, and its target is
+// never requested, whatever host it names; without NoRedirects the same GET
+// follows it.
+func TestFetch_NoRedirectsReturnsTheRedirect(t *testing.T) {
+	const retryAfter = 5 * time.Minute
+	var elsewhere atomic.Int32
+	other := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		elsewhere.Add(1)
+		fmt.Fprint(w, sampleFeed)
+	})
+	for _, code := range []int{
+		http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect,
+	} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			elsewhere.Store(0)
+			var hits atomic.Int32
+			srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.Header().Set("Location", other.URL+"/sorry")
+				w.Header().Set("Retry-After", fmt.Sprint(int(retryAfter.Seconds())))
+				w.WriteHeader(code)
+			})
+			c := newTestClient(t, 1<<20)
+
+			_, err := c.Fetch(t.Context(), Request{URL: srv.URL + "/a", NoRedirects: true})
+			var se *StatusError
+			if !errors.As(err, &se) {
+				t.Fatalf("err = %v, want *StatusError", err)
+			}
+			if se.StatusCode != code || se.URL != srv.URL+"/a" || se.RetryAfter != retryAfter {
+				t.Errorf("StatusError = %+v", *se)
+			}
+			if n, m := hits.Load(), elsewhere.Load(); n != 1 || m != 0 {
+				t.Errorf("%d requests, %d to the redirect target; want 1 and none", n, m)
+			}
+
+			res, err := c.Fetch(t.Context(), Request{URL: srv.URL + "/a"})
+			if err != nil || res.FinalURL != other.URL+"/sorry" || elsewhere.Load() != 1 {
+				t.Errorf("GET without NoRedirects = %+v, %v; want the redirect followed", res, err)
+			}
+		})
+	}
+}
+
+func TestFetch_NoRedirectsStillReadsAnAnswer(t *testing.T) {
+	srv := redirectServer(t, nil)
+	c := newTestClient(t, 1<<20)
+	res, err := c.Fetch(t.Context(), Request{URL: srv.URL + "/feed", NoRedirects: true})
+	if err != nil || res.StatusCode != http.StatusOK || string(res.Body) != sampleFeed || res.FinalURL != srv.URL+"/feed" {
+		t.Fatalf("Fetch = %+v, %v; want the feed", res, err)
 	}
 }

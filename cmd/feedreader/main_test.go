@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -91,6 +92,13 @@ func TestRun_InvalidConfigurationFails(t *testing.T) {
 		err := run(t.Context(), nil, io.Discard, io.Discard)
 		if err == nil || !strings.Contains(err.Error(), "FR_POLL_INTERVAL") {
 			t.Fatalf("run = %v, want an FR_POLL_INTERVAL error", err)
+		}
+	})
+	t.Run("transcripts flag", func(t *testing.T) {
+		t.Setenv("FR_TRANSCRIPTS", "maybe")
+		err := run(t.Context(), nil, io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "FR_TRANSCRIPTS") {
+			t.Fatalf("run = %v, want an FR_TRANSCRIPTS error", err)
 		}
 	})
 	t.Run("missing config file", func(t *testing.T) {
@@ -210,6 +218,52 @@ func TestTimeZone_NamesTheZoneOfDigestTimes(t *testing.T) {
 	// The process's own zone is the system's when TZ is unset.
 	if now := time.Now(); now.Location().String() == "Local" && !strings.HasPrefix(timeZone(now), "system (") {
 		t.Errorf("timeZone of the system zone = %q, want it named system", timeZone(now))
+	}
+}
+
+// TestRun_TranscriptWorkerStopsBeforeTheDatabaseCloses: the transcript
+// worker starts with the scheduler whatever FR_TRANSCRIPTS says (so the UI
+// can turn transcripts on without a restart; it makes no request while a
+// switch is off, nor without feeds), the startup log says whether the
+// server allows transcripts, and a shutdown stops the worker before the
+// database is closed.
+func TestRun_TranscriptWorkerStopsBeforeTheDatabaseCloses(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		t.Run(fmt.Sprint("FR_TRANSCRIPTS=", on), func(t *testing.T) {
+			isolateEnv(t)
+			t.Setenv("FR_DATA_DIR", t.TempDir())
+			t.Setenv("FR_LISTEN", "127.0.0.1:0")
+			t.Setenv("FR_TRANSCRIPTS", strconv.FormatBool(on))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var logs syncBuffer
+			done := make(chan error, 1)
+			go func() { done <- run(ctx, nil, io.Discard, &logs) }()
+			waitForListen(t, &logs, done)
+			if !strings.Contains(logs.String(), "transcripts="+strconv.FormatBool(on)) {
+				t.Errorf("startup log does not say transcripts=%v:\n%s", on, logs.String())
+			}
+
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("run after cancel: %v\nlogs:\n%s", err, logs.String())
+				}
+			case <-time.After(shutdownTimeout + schedStopTimeout + 5*time.Second):
+				t.Fatalf("run did not return after cancel; logs:\n%s", logs.String())
+			}
+			out := logs.String()
+			started := strings.Contains(out, "transcript worker started")
+			workerStopped := strings.Index(out, "transcript worker stopped")
+			appStopped := strings.Index(out, "feedreader stopped")
+			switch {
+			case !started:
+				t.Errorf("transcript worker not started:\n%s", out)
+			case workerStopped < 0 || appStopped < workerStopped:
+				t.Errorf("the transcript worker did not stop before the database was closed:\n%s", out)
+			}
+		})
 	}
 }
 

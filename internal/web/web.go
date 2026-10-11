@@ -30,6 +30,17 @@ type Scheduler interface {
 	// digest ingestion time when that comes first; never later, and never
 	// for a feed in failure backoff.
 	ScheduleIngest(ctx context.Context, feedIDs []int64) error
+	// TranscriptSwitchesOf returns the switches a feed's transcripts
+	// depend on (feedID 0: the server's and the global one).
+	TranscriptSwitchesOf(ctx context.Context, feedID int64) (sched.TranscriptSwitches, error)
+	// SetTranscripts turns the global transcript switch on or off
+	// (sched.ErrTranscriptsOff: on while FR_TRANSCRIPTS=false).
+	SetTranscripts(ctx context.Context, on bool) error
+	// SetFeedTranscripts turns a source's transcript switch on or off.
+	SetFeedTranscripts(ctx context.Context, feedID int64, on bool) error
+	// RequestTranscript queues an entry's transcript at the user's request
+	// (sched.ErrNotAVideo, sched.ErrTranscriptsOff, store.ErrConflict).
+	RequestTranscript(ctx context.Context, entryID int64) error
 }
 
 // rescheduler is implemented by a Scheduler that can pull a feed's next poll
@@ -131,6 +142,8 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleHome)
 	mux.HandleFunc("GET /entries", s.handleEntries)
 	mux.HandleFunc("GET /entries/{id}", s.handleEntry)
+	mux.HandleFunc("GET /entries/{id}/transcript", s.handleEntryTranscript)
+	mux.HandleFunc("POST /entries/{id}/transcript/fetch", s.handleTranscriptFetch)
 	mux.HandleFunc("POST /entries/{id}/{action}", s.handleEntryAction)
 	mux.HandleFunc("POST /entries/{id}/tags", s.handleAddTag)
 	mux.HandleFunc("POST /entries/{id}/tags/{tag}/remove", s.handleRemoveTag)
@@ -149,6 +162,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /feeds/{id}/rename", s.handleFeedRename)
 	mux.HandleFunc("POST /feeds/{id}/move", s.handleFeedMove)
 	mux.HandleFunc("POST /feeds/{id}/interval", s.handleFeedInterval)
+	mux.HandleFunc("POST /feeds/{id}/transcripts", s.handleFeedTranscripts)
 	mux.HandleFunc("GET /feeds/{id}/unsubscribe", s.handleUnsubscribeConfirm)
 	mux.HandleFunc("POST /feeds/{id}/unsubscribe", s.handleUnsubscribe)
 
@@ -159,6 +173,8 @@ func (s *server) handler() http.Handler {
 
 	mux.HandleFunc("GET /tags/{id}/delete", s.handleTagDeleteConfirm)
 	mux.HandleFunc("POST /tags/{id}/delete", s.handleTagDelete)
+
+	mux.HandleFunc("POST /settings/transcripts", s.handleTranscriptsSetting)
 
 	mux.HandleFunc("POST /digests", s.handleDigestCreate)
 	mux.HandleFunc("GET /digests/{id}", s.handleDigestSettings)

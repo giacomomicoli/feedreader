@@ -1,5 +1,6 @@
 // Package fetch is the outbound HTTP client: conditional GET, redirect
-// tracking, response size cap, and status classification.
+// tracking, response size cap, and status classification, plus a bounded
+// POST for APIs that need one (see post.go).
 package fetch
 
 import (
@@ -24,12 +25,23 @@ const FeedAccept = "application/atom+xml, application/rss+xml, application/feed+
 // discovery.
 const HTMLAccept = "text/html, application/xhtml+xml;q=0.9, */*;q=0.8"
 
-// Request is one GET.
+// Request is one GET, or one POST when Method is http.MethodPost.
 type Request struct {
 	URL          string
-	ETag         string // sent as If-None-Match when non-empty
-	LastModified string // sent as If-Modified-Since when non-empty
+	ETag         string // sent as If-None-Match when non-empty (GET only)
+	LastModified string // sent as If-Modified-Since when non-empty (GET only)
 	Accept       string // "" = FeedAccept
+	// Method is "" or http.MethodGet for a GET, http.MethodPost for a POST
+	// of Body with Content-Type ContentType (both unset for a GET). See
+	// post.go for how a POST differs. Body is a string so that a Request
+	// stays comparable.
+	Method      string
+	Body        string
+	ContentType string
+	// NoRedirects returns a redirect as a *StatusError (with its
+	// Retry-After) instead of following it, for a GET that must reach no
+	// other URL than its own. A POST never follows a redirect (post.go).
+	NoRedirects bool
 }
 
 // Result is a successful (200) or not-modified (304) response.
@@ -125,7 +137,10 @@ func New(cfg config.Config) *Client {
 	}
 }
 
-// Fetch performs a GET. Non-200/304 final statuses return *StatusError.
+// Fetch performs a GET, or a POST (see Request.Method). Non-200/304 final
+// statuses return *StatusError; for a POST only 200 is a success. A
+// redirect is followed, unless the request is a POST or sets NoRedirects:
+// then it is the final status.
 //
 // The request carries User-Agent, Accept (r.Accept or FeedAccept) and, when
 // set, the If-None-Match / If-Modified-Since validators; the transport adds
@@ -142,11 +157,18 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*Result, error) {
 		return nil, err
 	}
 	display := safeurl.Redacted(target)
+	method, err := requestMethod(r)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", display, err)
+	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
+	if r.NoRedirects {
+		reqCtx = withoutRedirects(reqCtx)
+	}
 
-	req, err := c.newRequest(reqCtx, target, r)
+	req, err := c.newRequest(reqCtx, target, method, r)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
@@ -168,9 +190,8 @@ func (c *Client) Fetch(ctx context.Context, r Request) (*Result, error) {
 	if resp.Request != nil && resp.Request.URL != nil {
 		finalURL = resp.Request.URL
 	}
-	switch resp.StatusCode {
-	case http.StatusOK, http.StatusNotModified:
-	default:
+	notModified := resp.StatusCode == http.StatusNotModified && method == http.MethodGet
+	if resp.StatusCode != http.StatusOK && !notModified {
 		drain(resp.Body)
 		return nil, &StatusError{
 			URL:        safeurl.Redacted(finalURL),
@@ -236,11 +257,12 @@ func parseTarget(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// newRequest builds the GET with identification, content negotiation and
-// conditional headers. Accept-Encoding is deliberately left to the
-// transport, which then decompresses gzip transparently.
-func (c *Client) newRequest(ctx context.Context, target *url.URL, r Request) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+// newRequest builds the GET or POST (method, as checked by requestMethod)
+// with identification, content negotiation and conditional headers or the
+// body. Accept-Encoding is deliberately left to the transport, which then
+// decompresses gzip transparently.
+func (c *Client) newRequest(ctx context.Context, target *url.URL, method string, r Request) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, target.String(), requestBody(method, r))
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +272,9 @@ func (c *Client) newRequest(ctx context.Context, target *url.URL, r Request) (*h
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", accept)
+	if r.ContentType != "" {
+		req.Header.Set("Content-Type", r.ContentType)
+	}
 	if r.ETag != "" {
 		req.Header.Set("If-None-Match", r.ETag)
 	}

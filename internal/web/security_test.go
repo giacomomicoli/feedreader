@@ -121,7 +121,7 @@ func TestEntryXSSIsEscapedAndJavascriptURLsNeutralized(t *testing.T) {
 	}{
 		{"home", e.get("/"), true, true},
 		{"card fragment", e.post("/entries/"+idStr(ev.ID)+"/read", nil, htmx), true, true},
-		{"entry dialog", e.get("/entries/"+idStr(ev.ID), htmx), true, true},
+		{"entry drawer", e.get("/entries/"+idStr(ev.ID), htmx), true, true},
 		{"entry page", e.get("/entries/" + idStr(ev.ID)), true, true},
 		{"settings", e.get("/feeds/" + idStr(f.ID)), true, false},
 	}
@@ -160,7 +160,7 @@ func TestPagesHaveNoInlineScriptsStylesOrEval(t *testing.T) {
 		w := e.get(p)
 		checkCSPMarkup(t, p, w.Body.String())
 	}
-	checkCSPMarkup(t, "entry dialog", e.get(entry, htmx).Body.String())
+	checkCSPMarkup(t, "entry drawer", e.get(entry, htmx).Body.String())
 	checkCSPMarkup(t, "empty", newTestEnv(t).get("/").Body.String())
 }
 

@@ -1,0 +1,19 @@
+{
+ "playabilityStatus": {
+  "status": "OK",
+  "playableInEmbed": true,
+  "liveStreamability": {
+   "liveStreamabilityRenderer": {
+    "videoId": "vid00000001",
+    "pollDelayMs": "15000"
+   }
+  }
+ },
+ "videoDetails": {
+  "videoId": "vid00000001",
+  "title": "Synthetic live stream",
+  "lengthSeconds": "0",
+  "isLive": true,
+  "isLiveContent": true
+ }
+}

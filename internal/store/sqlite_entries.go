@@ -12,10 +12,13 @@ import (
 // entryViewSelect selects what scanEntryView expects. CROSS JOIN pins
 // entries as the outer loop so the planner walks a published_at index in grid
 // order and stops after LIMIT rows instead of sorting the whole scope.
+// Whether a transcript was fetched is one primary-key lookup per row
+// returned.
 const entryViewSelect = `SELECT e.id, e.feed_id, e.guid, e.url, e.title, e.summary_html,
 		e.author, e.thumbnail_url, e.published_at, e.updated_at, e.fetched_at,
 		e.is_read, e.is_later, e.is_favourite, e.read_at,
-		f.title, f.kind, f.icon_url
+		f.title, f.kind, f.icon_url,
+		EXISTS (SELECT 1 FROM entry_transcripts t WHERE t.entry_id = e.id AND t.status = 'ok')
 	FROM entries e CROSS JOIN feeds f ON f.id = e.feed_id`
 
 // scanEntryView reads one row selected with entryViewSelect. Tags are filled
@@ -31,7 +34,7 @@ func scanEntryView(r rowScanner) (EntryView, error) {
 	err := r.Scan(&v.ID, &v.FeedID, &v.GUID, &url, &v.Title, &summary,
 		&author, &thumb, &published, &updated, &fetched,
 		&v.IsRead, &v.IsLater, &v.IsFavourite, &readAt,
-		&v.FeedTitle, &kind, &feedIcon)
+		&v.FeedTitle, &kind, &feedIcon, &v.HasTranscript)
 	if err != nil {
 		return EntryView{}, err
 	}

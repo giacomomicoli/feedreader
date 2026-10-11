@@ -66,7 +66,7 @@ func TestEndToEnd(t *testing.T) {
 		{"AddSource_Preview_FetchesFeedOnceAndPrefillsTitle", sc.preview},
 		{"AddSource_Confirm_SubscribesIntoNewFolderAndRedirectsToFeed", sc.confirm},
 		{"InitialAdd_5NewestUnread_RestStoredRead", sc.initialUnread},
-		{"EntryDialog_FullSummaryAsPlainText_ChangesNothing", sc.entryDialog},
+		{"EntryDrawer_FullSummaryAsPlainText_ChangesNothing", sc.entryDrawer},
 		{"LoadMore_RevealsOlderStoredEntriesInBlocksOf5", sc.loadMore},
 		{"QuickActions_ReturnCardPlusOOBSidebarCounts", sc.quickActions},
 		{"Tags_AddMatchCaseInsensitivelyAutocompleteRemove", sc.tags},
@@ -76,6 +76,7 @@ func TestEndToEnd(t *testing.T) {
 		{"Poll_RepeatedFailures_WarningAfter3_EntriesKept", sc.pollFailures},
 		{"AddSource_DirectFeedURL_FewerThan5AllUnreadNoLoadMore", sc.addVideos},
 		{"AddSource_AlreadySubscribed_Conflict", sc.addDuplicate},
+		{"Transcripts_GlobalSwitchOffByDefault_TogglesWithoutRequests", sc.transcriptSwitch},
 		{"MarkAllAsRead_CurrentScopeOnly", sc.markAllRead},
 		{"CrossSitePost_Rejected", sc.crossSite},
 		{"Unsubscribe_DeletesFeedEntriesSavedEntriesAndEntryTags", sc.unsubscribe},
@@ -295,23 +296,23 @@ func (sc *scenario) initialUnread(t *testing.T) {
 	expectBadges(t, p, false, sc.blogBadges(blogUnreadAfterAdd))
 }
 
-// entryDialog: a card's Summary link loads the entry's whole summary, as the
-// visible text of the sanitized feed HTML, into the dialog of the layout
+// entryDrawer: a card's Details button loads the entry's whole summary, as
+// the visible text of the sanitized feed HTML, into the drawer of the layout
 // (a page of its own without htmx). Opening it changes nothing.
-func (sc *scenario) entryDialog(t *testing.T) {
+func (sc *scenario) entryDrawer(t *testing.T) {
 	a := sc.a
 	p := a.visit(t, feedScope(sc.blogID)).expect(t, http.StatusOK)
-	if byID(p.doc, "entry-dialog") == nil {
-		t.Fatal("the page has no entry dialog")
+	if byID(p.doc, "entry-drawer") == nil {
+		t.Fatal("the page has no entry drawer")
 	}
 	c := p.cards(t)[0]
-	if want := fmt.Sprintf("/entries/%d", c.id); c.summary != want {
-		t.Fatalf("Summary link of %s = %q, want %q", c.title, c.summary, want)
+	if want := fmt.Sprintf("/entries/%d", c.id); c.details != want {
+		t.Fatalf("Details button of %s = %q, want %q", c.title, c.details, want)
 	}
 	const want = "Summary of post 8 with a relative link."
 	for name, d := range map[string]*page{
-		"dialog": a.hxGet(t, c.summary).expect(t, http.StatusOK),
-		"page":   a.visit(t, c.summary).expect(t, http.StatusOK),
+		"drawer": a.hxGet(t, c.details).expect(t, http.StatusOK),
+		"page":   a.visit(t, c.details).expect(t, http.StatusOK),
 	} {
 		s := findFirst(d.doc, elemClass("div", "entry-summary"))
 		if s == nil || s.FirstChild == nil || s.FirstChild.Data != want || s.FirstChild.NextSibling != nil {
@@ -929,5 +930,42 @@ func expectBadges(t *testing.T, p *page, oob bool, want map[string]int) {
 		case oob && !isOOB:
 			t.Errorf("badge %s is not an out-of-band swap", id)
 		}
+	}
+}
+
+// transcriptSwitch: video transcripts are off until the user turns them on
+// at the bottom of the sidebar (FR_TRANSCRIPTS allows them by default);
+// turning them on and off queues nothing and makes no request, and a
+// source that is not on YouTube has no transcript switch of its own.
+func (sc *scenario) transcriptSwitch(t *testing.T) {
+	a, site := sc.a, sc.site
+	before := site.total()
+	p := a.visit(t, "/").expect(t, http.StatusOK)
+	box := findFirst(byID(p.doc, "transcripts-setting"), func(n *html.Node) bool {
+		return isElem(n, "input") && attr(n, "name") == "transcripts"
+	})
+	if box == nil || hasAttr(box, "checked") || hasAttr(box, "disabled") {
+		t.Fatalf("sidebar transcript switch = %v, want an unchecked, enabled checkbox:\n%s", box, p.body)
+	}
+	on := a.hxPost(t, "/settings/transcripts", url.Values{"transcripts": {"1"}}, "/").expect(t, http.StatusOK)
+	if !strings.Contains(on.body, `value="1" checked`) || !strings.Contains(on.body, `hx-swap-oob="true"`) {
+		t.Errorf("turning transcripts on answered:\n%s", on.body)
+	}
+	if got, err := a.st.TranscriptsSetting(t.Context()); err != nil || !got {
+		t.Errorf("setting after turning on = %v, %v", got, err)
+	}
+	a.hxPost(t, "/settings/transcripts", url.Values{}, "/").expect(t, http.StatusOK)
+	if got, err := a.st.TranscriptsSetting(t.Context()); err != nil || got {
+		t.Errorf("setting after turning off = %v, %v", got, err)
+	}
+	if _, ok, err := a.st.NextTranscript(t.Context()); ok || err != nil {
+		t.Errorf("a switch queued a transcript (%v, %v)", ok, err)
+	}
+	settings := a.visit(t, fmt.Sprintf("/feeds/%d", sc.videosID)).expect(t, http.StatusOK)
+	if byID(settings.doc, "feed-transcripts") != nil {
+		t.Error("a source that is not on YouTube has a transcript switch")
+	}
+	if after := site.total(); after != before {
+		t.Errorf("the switches made %d requests", after-before)
 	}
 }
