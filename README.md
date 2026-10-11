@@ -130,6 +130,7 @@ internal/fetch/     HTTP client: conditional GET, redirects, size limit, bounded
 internal/parse/     RSS/Atom/JSON Feed parsing (gofeed) and HTML sanitizing (bluemonday)
 internal/sched/     polling scheduler, the add-source pipeline and the transcript queue
 internal/transcript/ YouTube video transcripts: player API → caption track, no API key
+internal/innertube/ YouTube's InnerTube API: requests, client profiles, refusals, bounded JSON reading
 internal/web/       HTTP handlers, htmx partials, security headers
 internal/e2e/       end-to-end tests of the whole stack
 web/                embedded templates and static files (htmx, CSS, a small script for error notices, the entry drawer and its tabs, and broken icons)

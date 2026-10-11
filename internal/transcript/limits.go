@@ -1,5 +1,7 @@
 package transcript
 
+import "github.com/giacomomicoli/feedreader/internal/innertube"
+
 // Defensive limits on YouTube's answers, which are treated as hostile like
 // any fetched content. They are not tunable: each is far above what YouTube
 // sends. Decoding allocates at most about the size of the answer (see
@@ -34,7 +36,7 @@ const (
 	maxLangBytes = 35
 	// maxStatusBytes bounds the playability status shown in an error
 	// message, such as "LIVE_STREAM_OFFLINE".
-	maxStatusBytes = 40
+	maxStatusBytes = innertube.MaxStatusBytes
 )
 
 // Paragraphs. Caption tracks are a sequence of short cues; the text joins

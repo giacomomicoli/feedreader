@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/giacomomicoli/feedreader/internal/fetch"
+	"github.com/giacomomicoli/feedreader/internal/innertube"
 )
 
 // The caption endpoint. A track's URL is signed: its query must be sent as
@@ -147,7 +148,7 @@ func checkCaptionResponse(body []byte, contentType, finalURL string) error {
 // naming the first unknown key (see loggedKey): a renamed field must not
 // pass for a video without captions.
 //
-// After json.Valid has checked the syntax, a jsonWalker visits only the
+// After json.Valid has checked the syntax, an innertube.Walker visits only the
 // text and speaker flags of the segments and stops once the text is full,
 // so decoding allocates little beyond the text itself whatever the
 // document holds. Keys match exactly once unescaped (encoding/json would
@@ -157,8 +158,8 @@ func parseJSON3(body []byte, limit int) (string, error) {
 	if !json.Valid(body) {
 		return "", formatError(step, "invalid JSON")
 	}
-	w := &jsonWalker{b: body}
-	if w.next() != '{' {
+	w := innertube.NewWalker(body)
+	if w.Next() != '{' {
 		return "", formatError(step, "not a JSON object")
 	}
 	t := newTextBuilder(limit)
@@ -207,11 +208,11 @@ const maxEventKeyBytes = len("wsWinStyleId")
 // isKnownEventKey reports whether the escaped key raw is one of
 // knownEventKeys. It decodes an escaped key once, at most
 // maxEventKeyBytes+1 bytes of it, so a document of many escaped keys
-// costs one small string each, as keyIs does.
+// costs one small string each, as innertube.KeyIs does.
 func isKnownEventKey(raw []byte) bool {
 	k := string(raw) // not copied: only compared
 	if bytes.IndexByte(raw, '\\') >= 0 {
-		k = unquote(raw, maxEventKeyBytes+1)
+		k = innertube.Unquote(raw, maxEventKeyBytes+1)
 	}
 	for _, known := range knownEventKeys {
 		if k == known {
@@ -228,7 +229,7 @@ const maxLoggedKeyBytes = 32
 // most maxLoggedKeyBytes bytes (then "…"), anything but ASCII letters,
 // digits and _ replaced by "?".
 func loggedKey(raw []byte) string {
-	k := unquote(raw, maxLoggedKeyBytes+1)
+	k := innertube.Unquote(raw, maxLoggedKeyBytes+1)
 	cut := len(k) > maxLoggedKeyBytes
 	if cut {
 		k = clipUTF8(k, maxLoggedKeyBytes)
@@ -250,23 +251,23 @@ func loggedKey(raw []byte) string {
 
 // readEvents reads the cues of the caption document w is at into t, and
 // reports its shape.
-func readEvents(w *jsonWalker, t *textBuilder) captionShape {
+func readEvents(w *innertube.Walker, t *textBuilder) captionShape {
 	var found captionShape
-	w.object(func(key []byte) {
-		if !keyIs(key, "events") || w.next() != '[' {
+	w.Object(func(key []byte) {
+		if !innertube.KeyIs(key, "events") || w.Next() != '[' {
 			return
 		}
 		found.events = true
-		w.array(func() {
+		w.Array(func() {
 			t.startCue()
-			if w.next() != '{' {
+			if w.Next() != '{' {
 				found.notObject = true
 				return
 			}
-			w.object(func(key []byte) {
+			w.Object(func(key []byte) {
 				switch {
-				case keyIs(key, "segs"):
-					w.array(func() {
+				case innertube.KeyIs(key, "segs"):
+					w.Array(func() {
 						found.segments = true
 						if readSegment(w, t) {
 							found.texts = true
@@ -285,27 +286,27 @@ func readEvents(w *jsonWalker, t *textBuilder) captionShape {
 // "isSpeakerChange" flag (1 in automatic captions), into t, and reports
 // whether it has a text. A repeated key counts once, its last value, as
 // with encoding/json.
-func readSegment(w *jsonWalker, t *textBuilder) bool {
+func readSegment(w *innertube.Walker, t *textBuilder) bool {
 	var (
 		text            []byte
 		isText, speaker bool
 	)
-	w.object(func(key []byte) {
+	w.Object(func(key []byte) {
 		switch {
-		case keyIs(key, "utf8"):
-			text, isText = nil, w.next() == '"'
+		case innertube.KeyIs(key, "utf8"):
+			text, isText = nil, w.Next() == '"'
 			if isText {
-				text = w.str()
+				text = w.Str()
 			}
-		case keyIs(key, "isSpeakerChange"):
+		case innertube.KeyIs(key, "isSpeakerChange"):
 			speaker = false
-			if c := w.next(); c != '"' && c != '{' && c != '[' {
-				speaker = truthy(w.literal())
+			if c := w.Next(); c != '"' && c != '{' && c != '[' {
+				speaker = innertube.Truthy(w.Literal())
 			}
 		}
 	})
-	t.writeSegment(unquote(text, t.budget()), speaker)
-	w.stop = t.full()
+	t.writeSegment(innertube.Unquote(text, t.budget()), speaker)
+	w.Stop = t.full()
 	return isText
 }
 
