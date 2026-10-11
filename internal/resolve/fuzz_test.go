@@ -24,6 +24,8 @@ func FuzzResolveInput(f *testing.F) {
 		"youtube.com/@x", "https://www.youtube.com/channel/" + ytChannelID,
 		"https://youtube.com/playlist?list=PL1", "mailto:a@b", "http://[::1", "%zz",
 		"https://www.youtube.com/feeds/videos.xml?user=", "https://m.youtube.com/c/%",
+		"http://m.youtube.com/feeds/videos.xml?playlist_id=UULF" + modeChanRest + "&x=1",
+		"https://www.youtube.com/feeds/videos.xml?playlist_id=UUSH" + modeChanRest,
 	} {
 		f.Add(s)
 	}
@@ -31,6 +33,20 @@ func FuzzResolveInput(f *testing.F) {
 		if IsChannelFeed(raw) {
 			if u, err := url.Parse(strings.TrimSpace(raw)); err != nil || !isHTTPURL(u) || !isYouTubeHost(u) {
 				t.Fatalf("IsChannelFeed(%q) for a URL that is not on YouTube", raw)
+			}
+		}
+		if id, m, ok := FeedMode(raw); ok {
+			// A mode feed names a well-formed channel, and its canonical URL
+			// is built from that channel alone.
+			canonical := ModeFeedURL(id, m)
+			if canonical == "" {
+				t.Fatalf("FeedMode(%q) = %q, %q: no canonical URL", raw, id, m)
+			}
+			if id2, m2, ok2 := FeedMode(canonical); !ok2 || id2 != id || m2 != m {
+				t.Fatalf("FeedMode(%q) = %q, %q; its canonical URL %q gives %q, %q", raw, id, m, canonical, id2, m2)
+			}
+			if !strings.HasPrefix(canonical, ytFeedBase+"?") || strings.ContainsAny(canonical[len(ytFeedBase)+1:], "&#/%") {
+				t.Fatalf("ModeFeedURL(%q, %q) = %q", id, m, canonical)
 			}
 		}
 		res, err := New(newFake()).Resolve(context.Background(), raw)

@@ -50,6 +50,45 @@ type fakeSched struct {
 
 	ingested  [][]int64 // the feed ids of each ScheduleIngest call
 	ingestErr error
+
+	modes      []modeCall // SetMode calls
+	setModeErr error
+}
+
+// modeCall is one SetMode call.
+type modeCall struct {
+	id   int64
+	mode resolve.Mode
+}
+
+// SetMode switches the feed's URL in the real store as the scheduler does
+// (see sched.Scheduler.SetMode), unless setModeErr is set.
+func (f *fakeSched) SetMode(ctx context.Context, id int64, m resolve.Mode) (store.Feed, error) {
+	f.mu.Lock()
+	f.modes = append(f.modes, modeCall{id, m})
+	err := f.setModeErr
+	f.mu.Unlock()
+	if err != nil {
+		return store.Feed{}, err
+	}
+	if _, ok := resolve.ParseMode(string(m)); !ok {
+		return store.Feed{}, fmt.Errorf("fake set mode: %w", store.ErrInvalid)
+	}
+	fd, err := f.st.GetFeed(ctx, id)
+	if err != nil {
+		return store.Feed{}, err
+	}
+	ch, cur, ok := resolve.FeedMode(fd.URL)
+	if !ok || fd.Kind != store.KindYouTube {
+		return store.Feed{}, fmt.Errorf("fake set mode: %w", store.ErrInvalid)
+	}
+	if cur == m {
+		return fd, nil
+	}
+	if err := f.st.ChangeFeedURL(ctx, id, fd.URL, resolve.ModeFeedURL(ch, m), time.Now(), false); err != nil {
+		return store.Feed{}, err
+	}
+	return f.st.GetFeed(ctx, id)
 }
 
 func (f *fakeSched) ScheduleIngest(_ context.Context, feedIDs []int64) error {

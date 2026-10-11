@@ -276,11 +276,17 @@ func errorHeading(status int) string {
 // formError answers an htmx form whose target is its own inline error slot
 // with 422 and the message; non-htmx posts get a full error page.
 func (s *server) formError(w http.ResponseWriter, r *http.Request, msg string) {
+	s.formErrorStatus(w, r, http.StatusUnprocessableEntity, msg)
+}
+
+// formErrorStatus is formError with another status than 422: 409 for a
+// change that conflicts with another stored item.
+func (s *server) formErrorStatus(w http.ResponseWriter, r *http.Request, status int, msg string) {
 	if !isHTMX(r) {
-		s.writeError(w, r, http.StatusUnprocessableEntity, msg)
+		s.writeError(w, r, status, msg)
 		return
 	}
-	s.renderFragment(w, r, http.StatusUnprocessableEntity, "form-error", msg, false)
+	s.renderFragment(w, r, status, "form-error", msg, false)
 }
 
 // parseForm parses the request body, mapping oversized bodies to 413.

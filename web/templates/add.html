@@ -82,6 +82,15 @@
     <option value="new"{{if .NewSelected}} selected{{end}}>New folder…</option>
   </select>
   <div id="new-folder-field" class="stack">{{if .NewSelected}}{{template "add-new-folder" .}}{{end}}</div>
+  {{with .Preview}}{{if .Modes}}
+  <label for="sub-mode">Follow</label>
+  <select id="sub-mode" name="mode" aria-describedby="sub-mode-help">
+    {{range .Modes}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+  </select>
+  <p class="field-note" id="sub-mode-help">{{.ModeNote}}</p>
+  {{else if .ModeLater}}
+  <p class="field-note">To follow only its videos or only its Shorts, pick that in its settings once subscribed.</p>
+  {{end}}{{end}}
   {{if .Error}}<p class="field-error">{{.Error}}</p>{{end}}
   <div class="actions">
     <button class="btn btn-primary" type="submit">Subscribe</button>

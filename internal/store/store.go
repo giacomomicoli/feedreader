@@ -99,6 +99,11 @@ type Feed struct {
 	// be fetched: its first stored document follows the initial-add rule
 	// (see FetchSuccess.InitialUnread), which clears the flag.
 	InitialPending bool
+	// HasEntries reports whether any entry of the feed is stored. It is
+	// read with the row, not a column: a pending subscription that never
+	// answered has none, while a feed switched to another URL (see
+	// ChangeFeedURL) keeps the entries it had.
+	HasEntries bool
 
 	CreatedAt time.Time
 }
@@ -509,6 +514,15 @@ type Store interface {
 	// UpdateFeedURL stores a permanently redirected feed URL. Returns
 	// ErrConflict if another feed already uses that URL.
 	UpdateFeedURL(ctx context.Context, id int64, url string) error
+	// ChangeFeedURL makes the feed follow the URL to instead of from, as a
+	// new subscription there whose first fetch is due at next: validators,
+	// <ttl> and failures are cleared and the feed becomes pending
+	// (Feed.InitialPending); title, folder, icon, interval and entries stay.
+	// Returns ErrNotFound when the feed does not exist or its URL is no
+	// longer from, ErrConflict when another feed already uses to. With
+	// keepFailures the failure count and last error stay instead (the feed
+	// is waiting out a rate limit until next).
+	ChangeFeedURL(ctx context.Context, id int64, from, to string, next time.Time, keepFailures bool) error
 	// SetFeedIcon stores an icon found for the feed outside its document (a
 	// YouTube channel's avatar). Polls keep it while the document has none.
 	SetFeedIcon(ctx context.Context, id int64, iconURL string) error

@@ -200,7 +200,7 @@ func (s *server) digestSettings(ctx context.Context, d store.Digest) (digestSett
 		avatar := newAvatar(f.ID, f.Title, f.IconURL)
 		v.Feeds = append(v.Feeds, sourceOption{Field: sourceFeed, ID: f.ID, Label: f.Title, Detail: folderNames[f.FolderID],
 			Checked: pickedFeeds[f.ID], Avatar: &avatar,
-			Warn: warnFeed(f), LastError: f.LastError, Waiting: f.InitialPending})
+			Warn: warnFeed(f), LastError: f.LastError, Waiting: waitingFeed(f)})
 	}
 	for _, t := range tags {
 		v.Tags = append(v.Tags, sourceOption{Field: sourceTag, ID: t.ID, Label: t.Name, Detail: pluralEntries(t.Count),

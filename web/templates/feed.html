@@ -41,6 +41,23 @@
     </form>
   </section>
 
+  {{if .Modes}}
+  <section class="panel">
+    <h2>Videos and Shorts</h2>
+    <form class="stack" method="post" action="/feeds/{{.ID}}/mode" hx-post="/feeds/{{.ID}}/mode" hx-target="#err-mode" hx-swap="innerHTML">
+      <label for="feed-mode">Follow</label>
+      <div class="input-row">
+        <select id="feed-mode" name="mode" aria-describedby="mode-help">
+          {{range .Modes}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+        </select>
+        <button class="btn" type="submit">Save</button>
+      </div>
+      <p class="field-note" id="mode-help">{{.ModeNote}}</p>
+      <p class="form-error" id="err-mode" aria-live="polite"></p>
+    </form>
+  </section>
+  {{end}}
+
   <section class="panel">
     <h2>Polling</h2>
     <form class="stack" method="post" action="/feeds/{{.ID}}/interval" hx-post="/feeds/{{.ID}}/interval" hx-target="#err-interval" hx-swap="innerHTML">

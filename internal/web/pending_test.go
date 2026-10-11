@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func (e *testEnv) addPendingFeed(slug, title string, failures int) store.Feed {
 	ctx := context.Background()
 	now := time.Now()
 	f, err := e.st.CreateFeed(ctx, store.NewFeed{
-		Kind: store.KindYouTube, URL: "https://example.com/" + slug + "/feed.xml", Title: title,
+		Kind: store.KindYouTube, URL: resolve.ChannelFeedURL("UC" + (slug + strings.Repeat("0", 22))[:22]), Title: title,
 		FetchedAt: now.Add(-time.Hour), NextFetchAt: now.Add(time.Hour), InitialPending: true,
 		LastError: "HTTP 404 from upstream",
 	}, nil, 0)

@@ -139,6 +139,10 @@ type Scheduler struct {
 	transcriptBlockedPause time.Duration
 	sleep                  func(ctx context.Context, d time.Duration)
 	transcriptTimer        func(d time.Duration) (c <-chan time.Time, stop func() bool)
+	// rateLimited holds the feeds whose last failed poll was a server's
+	// rate limit (see mode.go).
+	rateMu      sync.Mutex
+	rateLimited map[int64]rateLimitMark
 }
 
 // New creates a scheduler. It makes no HTTP request until Run is called and
@@ -177,6 +181,7 @@ func New(st store.Store, f Fetcher, cfg config.Config, log *slog.Logger) *Schedu
 		transcriptBlockedPause: config.TranscriptBlockedPause,
 		sleep:                  sleepCtx,
 		transcriptTimer:        newTimer,
+		rateLimited:            make(map[int64]rateLimitMark),
 	}
 }
 
@@ -356,8 +361,8 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 // The stored URL is the final feed URL (after permanent redirects). The
 // title is sub.Title, else the feed's own title, else the URL's host. The
 // icon is the feed's own, else sub.IconURL, else for a YouTube channel feed
-// the avatar on the channel's page, looked up with one more request once
-// the subscription is stored (see lookupAvatar). The first poll is
+// (in any mode, see SetMode) the avatar on the channel's page, looked up
+// with one more request once the subscription is stored (see lookupAvatar). The first poll is
 // scheduled one interval of the feed's kind (raised by the feed's <ttl> and
 // Cache-Control max-age hints) after now, or at the first ingestion time of
 // a digest that names the folder after the stored fetch was sent, when that

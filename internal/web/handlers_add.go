@@ -71,6 +71,13 @@ type previewView struct {
 	// subscribed to anyway; the form then carries the user's consent
 	// (allow_pending), which the scheduler checks for itself.
 	Pending bool
+	// Modes are the modes a YouTube channel can be followed in (all
+	// uploads, only regular videos, only Shorts), the picked one selected;
+	// nil for other feeds and for a pending preview, whose mode is picked
+	// in the feed's settings once subscribed (ModeLater).
+	Modes     []modeOption
+	ModeLater bool
+	ModeNote  string
 }
 
 // pendingNote replaces the entry count of a pending preview.
@@ -91,6 +98,13 @@ func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n 
 	}
 	if len(iconURL) <= maxURLLen {
 		p.IconURL = httpURL(iconURL)
+	}
+	if _, _, ok := resolve.FeedMode(feedURL); ok && kind == store.KindYouTube {
+		if pending {
+			p.ModeLater = true
+		} else {
+			p.Modes, p.ModeNote = modeOptions(feedURL, ""), addModeNote
+		}
 	}
 	switch {
 	case pending:
@@ -182,8 +196,9 @@ func (s *server) handleAddPreview(w http.ResponseWriter, r *http.Request) {
 
 // normalizeFeedURL accepts a typed feed URL, defaulting to https:// when
 // the scheme is missing; anything but http(s) yields "". A YouTube channel's
-// feed in any spelling becomes its canonical URL, as the resolver gives it,
-// so no add path stores one channel under two URLs.
+// feed, or the feed of its videos or Shorts (see resolve.FeedMode), in any
+// spelling becomes its canonical URL, as the resolver gives it, so no add
+// path stores one feed under two URLs.
 func normalizeFeedURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > maxURLLen {
@@ -193,8 +208,8 @@ func normalizeFeedURL(raw string) string {
 		raw = "https://" + raw
 	}
 	raw = httpURL(raw)
-	if id, ok := resolve.ChannelFeedID(raw); ok {
-		return resolve.ChannelFeedURL(id)
+	if id, m, ok := resolve.FeedMode(raw); ok {
+		return resolve.ModeFeedURL(id, m)
 	}
 	return raw
 }
@@ -303,6 +318,19 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	selected, _ := strconv.ParseInt(f.Get("folder"), 10, 64)
 	v.Folders = folderOptions(folders, selected)
+	// The form carries the channel's feed and the mode picked for it.
+	target, mode := feedURL, resolve.Mode("")
+	if raw := f.Get("mode"); raw != "" {
+		var ok bool
+		if target, mode, ok = modeFeedURL(feedURL, raw); !ok {
+			v.Error = errPickMode
+			s.renderAdd(w, r, http.StatusUnprocessableEntity, v)
+			return
+		}
+		if v.Preview.Modes != nil {
+			v.Preview.Modes = modeOptions(feedURL, mode)
+		}
+	}
 	if tooLong(v.Title) {
 		v.Error = fmt.Sprintf("Titles can be at most %d characters.", maxNameLen)
 		s.renderAdd(w, r, http.StatusUnprocessableEntity, v)
@@ -321,13 +349,18 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	feed, err := s.sched.Subscribe(ctx, sched.Subscription{FeedURL: feedURL, Title: v.Title, FolderID: folderID,
+	feed, err := s.sched.Subscribe(ctx, sched.Subscription{FeedURL: target, Title: v.Title, FolderID: folderID,
 		IconURL: v.Preview.IconURL, AllowPending: pending})
 	if err != nil {
 		if created {
 			s.rollbackFolder(context.WithoutCancel(ctx), folderID)
 		}
-		if errors.Is(err, store.ErrConflict) && s.renderIfSubscribed(w, r, feedURL, addView{URL: feedURL}) {
+		if errors.Is(err, store.ErrConflict) && s.renderIfSubscribed(w, r, target, addView{URL: target}) {
+			return
+		}
+		if msg, ok := modeFeedFailure(mode, err); ok {
+			v.Error = msg
+			s.renderAdd(w, r, http.StatusUnprocessableEntity, v)
 			return
 		}
 		if msg, ok := userFacing(err, s.cfg.MaxBodyBytes); ok {
@@ -335,7 +368,7 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 			s.renderAdd(w, r, http.StatusUnprocessableEntity, v)
 			return
 		}
-		s.fail(w, r, fmt.Errorf("subscribe %s: %w", redactURL(feedURL), err))
+		s.fail(w, r, fmt.Errorf("subscribe %s: %w", redactURL(target), err))
 		return
 	}
 	s.log.Info("subscribed", "feed", feed.ID, "url", redactURL(feed.URL))

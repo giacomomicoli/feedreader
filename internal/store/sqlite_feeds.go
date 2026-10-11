@@ -22,7 +22,8 @@ func redactURL(raw string) string {
 // feedCols is the column list scanFeed expects, in order.
 const feedCols = `id, kind, url, site_url, title, original_title, icon_url, folder_id,
 	etag, last_modified, last_fetched_at, next_fetch_at, interval_sec, error_count,
-	last_error, created_at, ttl_sec, initial_pending`
+	last_error, created_at, ttl_sec, initial_pending,
+	EXISTS (SELECT 1 FROM entries WHERE entries.feed_id = feeds.id)`
 
 // scanFeed reads one row selected with feedCols.
 func scanFeed(r rowScanner) (Feed, error) {
@@ -35,7 +36,7 @@ func scanFeed(r rowScanner) (Feed, error) {
 	)
 	err := r.Scan(&f.ID, &kind, &f.URL, &siteURL, &f.Title, &origTitle, &iconURL, &folderID,
 		&etag, &lastMod, &lastFetched, &next, &interval, &f.ErrorCount, &lastEr, &created, &f.TTLSec,
-		&f.InitialPending)
+		&f.InitialPending, &f.HasEntries)
 	if err != nil {
 		return Feed{}, err
 	}
@@ -291,6 +292,36 @@ func (s *SQLite) UpdateFeedURL(ctx context.Context, id int64, url string) error 
 	}
 	if err := execOne(ctx, s.db, "feed", id, `UPDATE feeds SET url = ? WHERE id = ?`, url, id); err != nil {
 		return fmt.Errorf("store: update url of feed %d to %s: %w", id, redactURL(url), err)
+	}
+	return nil
+}
+
+// ChangeFeedURL makes the feed follow another URL from its next fetch, as
+// if newly subscribed there, keeping its title, folder, icon, interval and
+// stored entries: the URL becomes to, the validators (etag, last_modified)
+// and <ttl> of the old URL are dropped, the failure count and last error
+// are cleared, the next fetch is set to next and the feed becomes a pending
+// subscription (initial_pending), so the first document of the new URL is
+// stored as an initial add. Nothing is written unless the feed's URL is
+// still from: it returns ErrNotFound when the feed does not exist or no
+// longer has that URL, ErrConflict when another feed already uses to and
+// ErrInvalid when to is empty.
+//
+// With keepFailures the failure count and last error are kept instead: the
+// feed is waiting out a server's rate limit, and the stored failure is what
+// keeps later schedule changes from moving next earlier.
+func (s *SQLite) ChangeFeedURL(ctx context.Context, id int64, from, to string, next time.Time, keepFailures bool) error {
+	if strings.TrimSpace(to) == "" {
+		return fmt.Errorf("store: change url of feed %d: empty URL: %w", id, ErrInvalid)
+	}
+	err := execOne(ctx, s.db, "feed", id,
+		`UPDATE feeds SET url = ?1, etag = NULL, last_modified = NULL, ttl_sec = 0,
+			error_count = CASE WHEN ?4 THEN error_count ELSE 0 END,
+			last_error = CASE WHEN ?4 THEN last_error ELSE NULL END,
+			initial_pending = 1, next_fetch_at = ?2
+		 WHERE id = ?3 AND url = ?5`, to, unixOrZero(next), id, boolInt(keepFailures), from)
+	if err != nil {
+		return fmt.Errorf("store: change url of feed %d to %s: %w", id, redactURL(to), err)
 	}
 	return nil
 }
