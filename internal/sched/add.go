@@ -100,6 +100,14 @@ func (f resolveFetcher) Fetch(ctx context.Context, r fetch.Request) (*fetch.Resu
 		// again and reports the error.
 		_, _ = f.s.keep(r.URL, res, started)
 	}
+	if err == nil {
+		// A channel's own page on YouTube (an @handle being resolved)
+		// confirms the channel for a pending subscription, so an outage
+		// does not cost a second request of the same page.
+		if ch, ok := resolve.ChannelFromPage(r.URL, res); ok {
+			f.s.channels.put(ch, f.s.now())
+		}
+	}
 	return res, err
 }
 

@@ -219,6 +219,15 @@ func Excerpt(html string, n int) string {
 	return excerpt(html, n)
 }
 
+// PlainTitle bounds a title read from untrusted plain text outside a feed
+// (such as a page's og:title) the way feed titles are: one line,
+// whitespace and control characters collapsed, at most as many runes as a
+// feed title, with "…" ending a cut. Markup is kept as text; the result must
+// still be HTML-escaped when rendered (html/template does this).
+func PlainTitle(s string) string {
+	return titleText(s, kindText)
+}
+
 // Text returns at most n runes of visible text from html, like Excerpt, but
 // keeps its line breaks: a <br>, a newline inside <pre> or the edge of a
 // block such as <div>, <li> or <tr> starts a new line, and a paragraph, list

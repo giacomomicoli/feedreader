@@ -71,10 +71,14 @@
 <li><a class="nav-item feed-row{{if .Active}} is-active{{end}}" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>
   {{template "avatar" .Avatar}}
   <span class="nav-label">{{.Title}}</span>
-  {{if .Warn}}<span class="feed-warn" title="{{if .LastError}}{{.LastError}}{{else}}Fetching keeps failing{{end}}">{{template "icon" "warn"}}<span class="sr-only">Fetching fails: {{.LastError}}</span></span>{{end}}
+  {{if .Waiting}}{{template "feed-wait"}}{{else if .Warn}}<span class="feed-warn" title="{{if .LastError}}{{.LastError}}{{else}}Fetching keeps failing{{end}}">{{template "icon" "warn"}}<span class="sr-only">Fetching fails: {{.LastError}}</span></span>{{end}}
   {{template "badge" .Badge}}
 </a></li>
 {{end}}
+
+{{/* Marks a subscription whose feed has not answered yet (store.Feed.InitialPending). */}}
+{{define "feed-wait"}}<span class="feed-wait" title="{{template "waiting-text"}}">{{template "icon" "wait"}}<span class="sr-only">{{template "waiting-text"}}</span></span>{{end}}
+{{define "waiting-text"}}Waiting for the first fetch{{end}}
 
 {{define "badge"}}<span class="badge" id="{{.ID}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .N}}{{.N}}{{end}}</span>{{end}}
 

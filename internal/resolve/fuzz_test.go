@@ -5,7 +5,15 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/giacomomicoli/feedreader/internal/parse"
 )
+
+// maxChannelTitleRunes is the bound parse.PlainTitle keeps a title to,
+// measured on a title far longer than any.
+var maxChannelTitleRunes = utf8.RuneCountInString(parse.PlainTitle(strings.Repeat("x", 1<<16)))
 
 // User input and fetched pages are untrusted: none of these may panic, and
 // whatever they return must be a usable http(s) URL.
@@ -62,9 +70,20 @@ func FuzzChannelFromHTML(f *testing.F) {
 	f.Add([]byte(identifierMeta("UC") + rssAlternate("UC_")))
 	f.Add([]byte(ytHandlePage(canonicalLink(ytChannelID) + ogImage(ytAvatar900))))
 	f.Add([]byte(ogImage("https://yt3.ggpht.com/a=s-s1x-=s") + ogImage("javascript:x") + identifierMeta(ytChannelID)))
+	f.Add([]byte(canonicalLink(ytChannelID) + `<meta property="og:title" content="a&#10;&lt;b&gt;` + strings.Repeat("x", 300) + `">`))
 	page, _ := url.Parse("https://www.youtube.com/@x")
 	f.Fuzz(func(t *testing.T, body []byte) {
+		cp, cpOK := channelPageFromHTML(body, page)
+		if !cpOK && cp != (channelPage{}) {
+			t.Fatalf("channel page %+v without a channel", cp)
+		}
+		if utf8.RuneCountInString(cp.title) > maxChannelTitleRunes || strings.ContainsFunc(cp.title, unicode.IsControl) {
+			t.Fatalf("unbounded or multi-line title %.40q", cp.title)
+		}
 		id, avatar, ok := channelFromHTML(body, page)
+		if ok != cpOK || id != cp.id || avatar != cp.avatar {
+			t.Fatalf("channelFromHTML disagrees with channelPageFromHTML")
+		}
 		if ok && !channelIDPattern.MatchString(id) {
 			t.Fatalf("invalid channel id %q", id)
 		}

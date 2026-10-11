@@ -352,10 +352,14 @@ func TestRun_RefreshLiftsTheHoldOfAFeedWhoseOutcomeWasNotStored(t *testing.T) {
 				mustNoErr(t, s.Refresh(t.Context(), f.ID))
 			}
 			waitFor(t, "the refreshed fetch", func() bool { return fetcher.CallCount() == 2 })
-			waitFor(t, "its outcome to be stored", func() bool { return getFeed(t, st, f.ID).ErrorCount == 1 })
+			// The refreshed fetch is manual: its failure is stored, not counted.
+			waitFor(t, "its outcome to be stored", func() bool { return getFeed(t, st, f.ID).LastError != "" })
 			time.Sleep(100 * time.Millisecond)
 			if n := fetcher.CallCount(); n != 2 {
 				t.Errorf("fetches = %d, want 2: one per refresh, then the stored backoff", n)
+			}
+			if n := getFeed(t, st, f.ID).ErrorCount; n != 0 {
+				t.Errorf("error_count = %d after a refreshed failure, want 0", n)
 			}
 		})
 	}

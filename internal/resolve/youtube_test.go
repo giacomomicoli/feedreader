@@ -28,11 +28,9 @@ const realHandlePageEnv = "FEEDREADER_YT_HANDLE_PAGE"
 
 func TestResolve_YouTube_FeedURL_UsedAsIsWithoutRequest(t *testing.T) {
 	for _, raw := range []string{
-		"https://www.youtube.com/feeds/videos.xml?channel_id=" + ytChannelID,
 		"https://www.youtube.com/feeds/videos.xml?playlist_id=PLOU2XLYxmsIIM9h1Ybw2DuRw6o2fkNMeR",
 		"https://www.youtube.com/feeds/videos.xml?user=GoogleDevelopers",
-		"http://youtube.com/feeds/videos.xml?channel_id=" + ytChannelID,
-		"https://m.youtube.com/feeds/videos.xml?channel_id=" + ytChannelID,
+		"https://m.youtube.com/feeds/videos.xml?playlist_id=PLOU2XLYxmsIIM9h1Ybw2DuRw6o2fkNMeR",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			f := newFake()
@@ -45,14 +43,35 @@ func TestResolve_YouTube_FeedURL_UsedAsIsWithoutRequest(t *testing.T) {
 			}
 		})
 	}
-	t.Run("without scheme", func(t *testing.T) {
-		f := newFake()
-		res := resolveOK(t, f, "youtube.com/feeds/videos.xml?channel_id="+ytChannelID)
-		want := "https://youtube.com/feeds/videos.xml?channel_id=" + ytChannelID
-		if got := candidateURLs(res); !slices.Equal(got, []string{want}) {
-			t.Errorf("candidates = %v; want [%s]", got, want)
-		}
-	})
+}
+
+// TestResolve_YouTube_ChannelFeedURL_Canonical: every spelling of a
+// channel's feed resolves to the one canonical URL, so the same channel is
+// never subscribed twice under two spellings.
+func TestResolve_YouTube_ChannelFeedURL_Canonical(t *testing.T) {
+	for _, raw := range []string{
+		ytChannelFeed,
+		"http://youtube.com/feeds/videos.xml?channel_id=" + ytChannelID,
+		"https://m.youtube.com/feeds/videos.xml?channel_id=" + ytChannelID,
+		"https://YouTube.com./feeds/videos.xml?channel_id=" + ytChannelID + "&utm_source=x",
+		"youtube.com/feeds/videos.xml?channel_id=" + ytChannelID,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			f := newFake()
+			res := resolveOK(t, f, raw)
+			if got := candidateURLs(res); !slices.Equal(got, []string{ytChannelFeed}) {
+				t.Errorf("candidates = %v; want [%s]", got, ytChannelFeed)
+			}
+			if n := len(f.urls()); n != 0 {
+				t.Errorf("made %d requests; want none", n)
+			}
+		})
+	}
+	// An invalid channel id is left as typed (the fetch reports the error).
+	const bad = "https://m.youtube.com/feeds/videos.xml?channel_id=UC_short"
+	if got := candidateURLs(resolveOK(t, newFake(), bad)); !slices.Equal(got, []string{bad}) {
+		t.Errorf("candidates = %v; want the URL as-is", got)
+	}
 }
 
 func TestResolve_YouTube_ChannelURL_FeedURLWithoutRequest(t *testing.T) {

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -66,9 +67,17 @@ type previewView struct {
 	EntryCount int
 	CountText  string
 	UnreadNote string
+	// Pending is set when the feed is not answering but the channel may be
+	// subscribed to anyway; the form then carries the user's consent
+	// (allow_pending), which the scheduler checks for itself.
+	Pending bool
 }
 
-func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n int) previewView {
+// pendingNote replaces the entry count of a pending preview.
+const pendingNote = "YouTube's feed isn't answering for this channel right now. " +
+	"You can subscribe anyway, videos will show up once it does."
+
+func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n int, pending bool) previewView {
 	if kind != store.KindYouTube {
 		kind = store.KindRSS
 	}
@@ -84,6 +93,9 @@ func newPreviewView(feedURL string, kind store.Kind, siteURL, iconURL string, n 
 		p.IconURL = httpURL(iconURL)
 	}
 	switch {
+	case pending:
+		p.Pending, p.EntryCount, p.CountText = true, 0, pendingNote
+		p.UnreadNote = fmt.Sprintf("Then the %d newest will be marked unread; older ones are kept as read.", config.InitialUnread)
 	case n == 0:
 		p.CountText = "The feed has no entries yet."
 	case n <= config.InitialUnread:
@@ -169,7 +181,9 @@ func (s *server) handleAddPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 // normalizeFeedURL accepts a typed feed URL, defaulting to https:// when
-// the scheme is missing; anything but http(s) yields "".
+// the scheme is missing; anything but http(s) yields "". A YouTube channel's
+// feed in any spelling becomes its canonical URL, as the resolver gives it,
+// so no add path stores one channel under two URLs.
 func normalizeFeedURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > maxURLLen {
@@ -178,7 +192,11 @@ func normalizeFeedURL(raw string) string {
 	if !strings.Contains(raw, "://") {
 		raw = "https://" + raw
 	}
-	return httpURL(raw)
+	raw = httpURL(raw)
+	if id, ok := resolve.ChannelFeedID(raw); ok {
+		return resolve.ChannelFeedURL(id)
+	}
+	return raw
 }
 
 // previewStep shows "already subscribed", an inline fetch error, or the
@@ -216,7 +234,9 @@ func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, ic
 		return
 	}
 	v.Step = stepConfirm
-	v.Preview = newPreviewView(finalURL, p.Kind, p.SiteURL, iconURL, p.EntryCount)
+	// A pending preview's avatar comes from the channel's page, fetched just
+	// now by the server.
+	v.Preview = newPreviewView(finalURL, p.Kind, p.SiteURL, cmp.Or(p.IconURL, iconURL), p.EntryCount, p.Pending)
 	v.Title = p.Title
 	v.Folders = folderOptions(folders, 0)
 	s.renderAdd(w, r, http.StatusOK, v)
@@ -265,9 +285,13 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entries, _ := strconv.Atoi(f.Get("entries"))
+	// Consent only: the scheduler decides whether a pending subscription is
+	// warranted.
+	pending := f.Get("allow_pending") == "1"
 	v := addView{
-		Step:        stepConfirm,
-		Preview:     newPreviewView(feedURL, store.Kind(f.Get("kind")), f.Get("site_url"), f.Get("icon_url"), max(entries, 0)),
+		Step: stepConfirm,
+		Preview: newPreviewView(feedURL, store.Kind(f.Get("kind")), f.Get("site_url"), f.Get("icon_url"),
+			max(entries, 0), pending),
 		Title:       cleanName(f.Get("title")),
 		NewSelected: f.Get("folder") == folderNew,
 		NewFolder:   cleanName(f.Get("new_folder")),
@@ -298,7 +322,7 @@ func (s *server) handleAddSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	feed, err := s.sched.Subscribe(ctx, sched.Subscription{FeedURL: feedURL, Title: v.Title, FolderID: folderID,
-		IconURL: v.Preview.IconURL})
+		IconURL: v.Preview.IconURL, AllowPending: pending})
 	if err != nil {
 		if created {
 			s.rollbackFolder(context.WithoutCancel(ctx), folderID)

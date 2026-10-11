@@ -112,7 +112,7 @@ func (s *Scheduler) ScheduleIngest(ctx context.Context, feedIDs []int64) error {
 		if err != nil {
 			return fmt.Errorf("sched: schedule the digest ingestion of feed %d: %w", id, err)
 		}
-		if f.ErrorCount > 0 {
+		if inBackoff(f) {
 			continue
 		}
 		at, err := s.nextIngest(ctx, f.ID, f.FolderID, now)

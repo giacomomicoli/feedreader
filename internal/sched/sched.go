@@ -37,6 +37,12 @@ type Preview struct {
 	Title      string // feed title, used to pre-fill the editable title
 	SiteURL    string
 	EntryCount int
+	// Pending is set when the feed did not answer but may be subscribed to
+	// anyway (see Scheduler.Preview); FeedURL is then the channel's
+	// canonical feed URL, Title and IconURL its name and avatar from its
+	// page on YouTube (either may be ""), and EntryCount 0.
+	Pending bool
+	IconURL string
 }
 
 // Subscription is the confirmed add-feed form.
@@ -48,6 +54,11 @@ type Subscription struct {
 	// avatar), stored when the feed has none of its own and it is an http(s)
 	// URL; "" = none.
 	IconURL string
+	// AllowPending is the user's consent to subscribe while the feed is not
+	// answering, given on a pending Preview. It is consent only: Subscribe
+	// checks for itself that a pending subscription is warranted (see
+	// subscribePending).
+	AllowPending bool
 }
 
 // addFetchSlots bounds the add flow's concurrent fetches (Preview, and
@@ -84,6 +95,9 @@ type Scheduler struct {
 	wake    chan struct{} // capacity 1: pending wake-ups coalesce
 	running atomic.Bool
 	cache   *previewCache
+	// channels holds the YouTube channels whose pages confirmed them for a
+	// pending subscription (see pending.go).
+	channels *channelCache
 
 	// addSlots is a semaphore of addFetchSlots for the add flow's fetches.
 	addSlots chan struct{}
@@ -101,6 +115,12 @@ type Scheduler struct {
 	unholdMu  sync.Mutex
 	unhold    map[int64]struct{}
 	unholdAll bool
+
+	// manual holds the feeds whose next fetch a Refresh or RefreshAll click
+	// asked for (see manual.go).
+	manualMu  sync.Mutex
+	manual    map[int64]manualRefresh
+	manualGen uint64 // last manualRefresh.gen handed out
 
 	// avatarTried holds the channel feed URLs whose page a poll has fetched
 	// for an avatar in this run (see backfillAvatar).
@@ -133,8 +153,10 @@ func New(st store.Store, f Fetcher, cfg config.Config, log *slog.Logger) *Schedu
 		loc:         time.Local,
 		wake:        make(chan struct{}, 1),
 		cache:       newPreviewCache(previewCacheTTL, previewCacheMax),
+		channels:    newChannelCache(),
 		addSlots:    make(chan struct{}, addFetchSlots),
 		unhold:      make(map[int64]struct{}),
+		manual:      make(map[int64]manualRefresh),
 		avatarTried: make(map[string]struct{}),
 	}
 }
@@ -168,11 +190,23 @@ func (s *Scheduler) Run(ctx context.Context) error {
 // fetched again as soon as that fetch is done (see keepRequested), however
 // many refreshes arrived meanwhile.
 //
+// The fetch is manual (see manual.go): if it fails, the failure is stored
+// but not counted, and the feed's next fetch is never later than before the
+// click.
+//
 // A feed held back because the outcome of its last poll could not be stored
 // is released: the schedule write that Refresh just made shows the store is
 // writable again.
 func (s *Scheduler) Refresh(ctx context.Context, feedID int64) error {
+	f, err := s.st.GetFeed(ctx, feedID)
+	if err != nil {
+		return fmt.Errorf("sched: refresh feed %d: %w", feedID, err)
+	}
+	// Marked before the fetch is scheduled, so the dispatcher cannot start
+	// it unmarked.
+	undo := s.markManual(f)
 	if err := s.st.SetNextFetch(ctx, feedID, s.now()); err != nil {
+		undo()
 		return fmt.Errorf("sched: refresh feed %d: %w", feedID, err)
 	}
 	s.unholdMu.Lock()
@@ -182,11 +216,22 @@ func (s *Scheduler) Refresh(ctx context.Context, feedID int64) error {
 	return nil
 }
 
-// RefreshAll forces an immediate fetch of every feed, releasing held feeds
-// as Refresh does. The fetches still go through the worker pool, so at most
-// cfg.FetchWorkers run at once.
+// RefreshAll forces an immediate fetch of every feed, as manual fetches
+// (see Refresh), releasing held feeds as Refresh does. The fetches still go
+// through the worker pool, so at most cfg.FetchWorkers run at once.
 func (s *Scheduler) RefreshAll(ctx context.Context) error {
+	feeds, err := s.st.ListFeeds(ctx)
+	if err != nil {
+		return fmt.Errorf("sched: refresh all feeds: %w", err)
+	}
+	undo := make([]func(), 0, len(feeds))
+	for _, f := range feeds {
+		undo = append(undo, s.markManual(f))
+	}
 	if err := s.st.SetAllNextFetch(ctx, s.now()); err != nil {
+		for _, u := range undo {
+			u()
+		}
 		return fmt.Errorf("sched: refresh all feeds: %w", err)
 	}
 	s.unholdMu.Lock()
@@ -210,7 +255,7 @@ func (s *Scheduler) Reschedule(ctx context.Context, feedID int64) error {
 	if err != nil {
 		return fmt.Errorf("sched: reschedule feed %d: %w", feedID, err)
 	}
-	if f.ErrorCount > 0 {
+	if inBackoff(f) {
 		return nil
 	}
 	now := s.now()
@@ -254,6 +299,12 @@ func (s *Scheduler) takeUnholds() (ids map[int64]struct{}, all bool) {
 // Errors wrap the fetch and parse errors (*fetch.StatusError,
 // fetch.ErrTooLarge, parse.ErrNotAFeed, …) so callers can tell the user what
 // went wrong. An empty URL yields an error wrapping store.ErrInvalid.
+//
+// A YouTube channel feed whose endpoint answers 404 or 5xx (YouTube serves
+// working channels' feeds with such errors for hours at a time) is not an
+// error when YouTube's page of the channel, fetched once more, confirms the
+// channel: the preview is then Pending, and Subscribe with AllowPending can
+// store the channel before its feed answers (see subscribePending).
 func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, error) {
 	feedURL = strings.TrimSpace(feedURL)
 	if feedURL == "" {
@@ -263,6 +314,9 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 	if fd == nil {
 		var err error
 		if fd, err = s.fetchFeed(ctx, feedURL); err != nil {
+			if p := s.pendingPreview(ctx, feedURL, err); p != nil {
+				return p, nil
+			}
 			return nil, fmt.Errorf("sched: preview: %w", err)
 		}
 	}
@@ -293,6 +347,9 @@ func (s *Scheduler) Preview(ctx context.Context, feedURL string) (*Preview, erro
 // feed is then due at once (one extra fetch, as after a poll that straddles
 // a digest time). The folder's ingestion times are read again once the feed
 // is created (see recheckIngest).
+//
+// With sub.AllowPending, a feed that does not answer may still be stored as
+// a pending subscription; see subscribePending.
 func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed, error) {
 	feedURL := strings.TrimSpace(sub.FeedURL)
 	if feedURL == "" {
@@ -303,8 +360,14 @@ func (s *Scheduler) Subscribe(ctx context.Context, sub Subscription) (store.Feed
 	}
 	fd := s.cache.get(feedURL, s.now())
 	if fd == nil {
+		started := s.now()
 		var err error
 		if fd, err = s.fetchFeed(ctx, feedURL); err != nil {
+			if sub.AllowPending {
+				if feed, ok, perr := s.subscribePending(ctx, sub, feedURL, started, s.now(), err); ok {
+					return feed, perr
+				}
+			}
 			return store.Feed{}, fmt.Errorf("sched: subscribe: %w", err)
 		}
 	}

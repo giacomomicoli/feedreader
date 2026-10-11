@@ -41,6 +41,9 @@ type feedSettingsView struct {
 	ErrorCount      int
 	LastError       string
 	Warn            bool
+	// Pending is set while the subscription waits for its feed's first
+	// answer: its failures are shown as waiting, not as a broken feed.
+	Pending bool
 }
 
 // feedForPath loads the feed named by the {id} path value.
@@ -86,7 +89,8 @@ func (s *server) handleFeedSettings(w http.ResponseWriter, r *http.Request) {
 		NextFetch:       absTime(f.NextFetchAt),
 		ErrorCount:      f.ErrorCount,
 		LastError:       f.LastError,
-		Warn:            f.ErrorCount >= config.WarnAfterFailures,
+		Warn:            warnFeed(f),
+		Pending:         f.InitialPending,
 	}
 	if f.OriginalTitle != "" && f.OriginalTitle != f.Title {
 		v.OriginalTitle = f.OriginalTitle

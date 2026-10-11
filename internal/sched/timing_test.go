@@ -49,7 +49,7 @@ func TestFailureDelay_FirstFailureRetriesSoonThenBacksOffExponentially(t *testin
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := failureDelay(tt.interval, tt.errorCount, tt.retryAfter); got != tt.want {
+			if got := failureDelay(tt.interval, tt.errorCount, tt.retryAfter, false); got != tt.want {
 				t.Errorf("failureDelay(%s, %d, %s) = %s, want %s", tt.interval, tt.errorCount, tt.retryAfter, got, tt.want)
 			}
 		})
@@ -73,7 +73,7 @@ func TestFailureDelay_ConsecutiveFailuresOfTheDefaultIntervals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for i, want := range tt.want {
-				if got := failureDelay(tt.interval, i+1, 0); got != want {
+				if got := failureDelay(tt.interval, i+1, 0, false); got != want {
 					t.Errorf("failure %d of a %s feed: retry in %s, want %s", i+1, tt.interval, got, want)
 				}
 			}

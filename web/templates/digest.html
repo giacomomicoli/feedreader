@@ -97,7 +97,7 @@
   <input id="src-{{.Field}}-{{.ID}}" type="checkbox" name="{{.Field}}" value="{{.ID}}"{{if .Checked}} checked{{end}}>
   {{with .Avatar}}{{template "avatar" .}}{{end}}
   <span class="source-label">{{.Label}}</span>
-  {{if .Warn}}<span class="feed-warn" title="{{if .LastError}}{{.LastError}}{{else}}Fetching keeps failing{{end}}">{{template "icon" "warn"}}<span class="sr-only">Fetching fails: {{.LastError}}</span></span>{{end}}
+  {{if .Waiting}}{{template "feed-wait"}}{{else if .Warn}}<span class="feed-warn" title="{{if .LastError}}{{.LastError}}{{else}}Fetching keeps failing{{end}}">{{template "icon" "warn"}}<span class="sr-only">Fetching fails: {{.LastError}}</span></span>{{end}}
   {{if .Detail}}<span class="source-detail">{{.Detail}}</span>{{end}}
 </label>
 {{end}}

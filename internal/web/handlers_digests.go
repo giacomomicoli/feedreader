@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/sched"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
@@ -73,9 +72,11 @@ type sourceOption struct {
 	Detail  string
 	Checked bool
 	Avatar  *avatarView // feeds only
-	// Warn and LastError flag a feed whose fetches keep failing.
+	// Warn and LastError flag a feed whose fetches keep failing; Waiting a
+	// subscription whose feed has not answered yet.
 	Warn      bool
 	LastError string
+	Waiting   bool
 }
 
 func digestHref(id int64) string { return "/digests/" + strconv.FormatInt(id, 10) }
@@ -199,7 +200,7 @@ func (s *server) digestSettings(ctx context.Context, d store.Digest) (digestSett
 		avatar := newAvatar(f.ID, f.Title, f.IconURL)
 		v.Feeds = append(v.Feeds, sourceOption{Field: sourceFeed, ID: f.ID, Label: f.Title, Detail: folderNames[f.FolderID],
 			Checked: pickedFeeds[f.ID], Avatar: &avatar,
-			Warn: f.ErrorCount >= config.WarnAfterFailures, LastError: f.LastError})
+			Warn: warnFeed(f), LastError: f.LastError, Waiting: f.InitialPending})
 	}
 	for _, t := range tags {
 		v.Tags = append(v.Tags, sourceOption{Field: sourceTag, ID: t.ID, Label: t.Name, Detail: pluralEntries(t.Count),

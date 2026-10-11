@@ -1,10 +1,13 @@
 package sched
 
 import (
+	"errors"
 	"math"
+	"net/http"
 	"time"
 
 	"github.com/giacomomicoli/feedreader/internal/config"
+	"github.com/giacomomicoli/feedreader/internal/fetch"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -73,14 +76,19 @@ func storedTTL(f store.Feed) time.Duration {
 // failure. A first failure is retried after config.FirstRetryDelay, or one
 // interval when that is shorter, since it is often a one-off. From the
 // second failure in a row it backs off: interval × 2^(errorCount-1) capped
-// at config.MaxBackoff, but never less than interval itself. In every case
-// it is at least Retry-After (also capped) when the server sent one. An
-// errorCount of zero or less is one interval.
-func failureDelay(interval time.Duration, errorCount int, retryAfter time.Duration) time.Duration {
+// at config.MaxBackoff, but never less than interval itself, unless capped
+// is set (see cappedFailure): the delay is then one interval, never more.
+// In every case it is at least Retry-After (also capped at
+// config.MaxBackoff) when the server sent one. An errorCount of zero or less
+// is one interval.
+func failureDelay(interval time.Duration, errorCount int, retryAfter time.Duration, capped bool) time.Duration {
 	var d time.Duration
-	if errorCount == 1 {
+	switch {
+	case errorCount == 1:
 		d = min(interval, config.FirstRetryDelay)
-	} else {
+	case capped:
+		d = interval
+	default:
 		backoff := interval
 		for i := 1; i < errorCount && backoff > 0 && backoff < config.MaxBackoff; i++ {
 			backoff *= 2
@@ -92,6 +100,33 @@ func failureDelay(interval time.Duration, errorCount int, retryAfter time.Durati
 	}
 	return d
 }
+
+// cappedFailure reports whether a poll of f that failed with err backs off
+// by one interval at most (failureDelay's capped). That is the case for a
+// YouTube feed whose feed endpoint answered 404 or 5xx: YouTube serves
+// feeds of working channels with such errors in streaks of minutes to hours,
+// so doubling the delay would only miss videos, and its feed requests are
+// cheap. A rate limit (429), any other status, and network, size, redirect
+// or parse failures back off as for any feed. Only the failure at hand
+// counts: a network failure in a streak of 404s backs off.
+func cappedFailure(f store.Feed, err error) bool {
+	return f.Kind == store.KindYouTube && feedEndpointDown(err)
+}
+
+// feedEndpointDown reports whether err is an HTTP 404 or 5xx answer, the
+// errors YouTube's feed endpoint gives for working channels during its
+// outages.
+func feedEndpointDown(err error) bool {
+	var se *fetch.StatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.StatusCode == http.StatusNotFound ||
+		(se.StatusCode >= http.StatusInternalServerError && se.StatusCode <= maxServerErrorStatus)
+}
+
+// maxServerErrorStatus is the last 5xx status code (RFC 9110 §15.6).
+const maxServerErrorStatus = 599
 
 // staggerTimes spreads n start times evenly across window, starting at now:
 // now, now + window/n, now + 2·window/n, …

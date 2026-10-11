@@ -192,17 +192,23 @@ func (d *dispatcher) wait(ctx context.Context, delay time.Duration, timed bool) 
 	}
 }
 
-// start hands f to a new fetch worker.
+// start hands f to a new fetch worker, as a manual fetch when a Refresh
+// click asked for it (see manual.go). This is where every poll begins, so a
+// click that arrives while the feed is being fetched marks the fetch after
+// it, which keepRequested schedules.
 func (d *dispatcher) start(ctx context.Context, f store.Feed) {
 	d.inFlight[f.ID] = struct{}{}
+	manual := d.s.takeManual(f)
 	d.wg.Go(func() {
-		d.done <- outcome{feedID: f.ID, holdUntil: d.s.safePoll(ctx, f)}
+		d.done <- outcome{feedID: f.ID, holdUntil: d.s.safePoll(ctx, f, manual)}
 	})
 }
 
-// finish records a worker's outcome.
+// finish records a worker's outcome, and drops the manual mark its fetch
+// took (see manual.go).
 func (d *dispatcher) finish(o outcome) {
 	delete(d.inFlight, o.feedID)
+	d.s.finishManual(o.feedID)
 	if !o.holdUntil.IsZero() {
 		d.holds[o.feedID] = o.holdUntil
 	}
@@ -218,17 +224,17 @@ func (d *dispatcher) busy(id int64) bool {
 	return held
 }
 
-// safePoll runs poll, turning a panic into a logged error so that one bad
-// feed cannot take the scheduler down. The feed is then held for one
+// safePoll runs pollWith, turning a panic into a logged error so that one
+// bad feed cannot take the scheduler down. The feed is then held for one
 // interval.
-func (s *Scheduler) safePoll(ctx context.Context, f store.Feed) (holdUntil time.Time) {
+func (s *Scheduler) safePoll(ctx context.Context, f store.Feed, manual *manualRefresh) (holdUntil time.Time) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.log.Error("feed poll panicked", "feed", f.ID, "url", redact(f.URL), "panic", r)
 			holdUntil = s.now().Add(s.baseInterval(f))
 		}
 	}()
-	return s.poll(ctx, f)
+	return s.pollWith(ctx, f, manual)
 }
 
 // stagger spreads the feeds that are overdue at startup evenly across

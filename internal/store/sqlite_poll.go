@@ -84,43 +84,68 @@ func newestN(list []NewEntry, n int) map[int]bool {
 	return set
 }
 
-// upsertEntries inserts new (feed_id, guid) pairs as unread and refreshes
-// existing ones, returning how many rows were inserted. Entries are processed
-// from last to first so that, among equal published_at values, the earlier
-// slice position gets the higher id and sorts first in the grid.
-func upsertEntries(ctx context.Context, tx *sql.Tx, feedID int64, list []NewEntry, fetchedAt time.Time) (int, error) {
+// upsertEntries inserts new (feed_id, guid) pairs and refreshes existing
+// ones, returning the indices in list of the inserted entries. New entries
+// are unread, or read (read_at = fetchedAt) when asRead is set. Entries are
+// processed from last to first so that, among equal published_at values, the
+// earlier slice position gets the higher id and sorts first in the grid.
+func upsertEntries(ctx context.Context, tx *sql.Tx, feedID int64, list []NewEntry, fetchedAt time.Time,
+	asRead bool) (inserted []int, err error) {
 	ins, err := tx.PrepareContext(ctx, insertEntrySQL)
 	if err != nil {
-		return 0, fmt.Errorf("prepare entry insert: %w", err)
+		return nil, fmt.Errorf("prepare entry insert: %w", err)
 	}
 	defer ins.Close()
 	upd, err := tx.PrepareContext(ctx, refreshEntrySQL)
 	if err != nil {
-		return 0, fmt.Errorf("prepare entry refresh: %w", err)
+		return nil, fmt.Errorf("prepare entry refresh: %w", err)
 	}
 	defer upd.Close()
 
-	inserted := 0
+	var readAt any
+	if asRead {
+		readAt = fetchedAt.Unix()
+	}
 	for i := len(list) - 1; i >= 0; i-- {
 		e := list[i]
-		res, err := ins.ExecContext(ctx, entryInsertArgs(feedID, e, fetchedAt, false, nil)...)
+		res, err := ins.ExecContext(ctx, entryInsertArgs(feedID, e, fetchedAt, asRead, readAt)...)
 		if err != nil {
-			return 0, fmt.Errorf("insert entry %q: %w", e.GUID, classify(err))
+			return nil, fmt.Errorf("insert entry %q: %w", e.GUID, classify(err))
 		}
 		n, err := res.RowsAffected()
 		if err != nil {
-			return 0, fmt.Errorf("insert entry %q: %w", e.GUID, err)
+			return nil, fmt.Errorf("insert entry %q: %w", e.GUID, err)
 		}
 		if n > 0 {
-			inserted++
+			inserted = append(inserted, i)
 			continue
 		}
 		if _, err := upd.ExecContext(ctx, e.Title, nullStr(e.SummaryHTML), nullStr(e.URL),
 			nullStr(e.ThumbnailURL), nullUnix(e.UpdatedAt), feedID, e.GUID); err != nil {
-			return 0, fmt.Errorf("refresh entry %q: %w", e.GUID, err)
+			return nil, fmt.Errorf("refresh entry %q: %w", e.GUID, err)
 		}
 	}
 	return inserted, nil
+}
+
+// markNewestUnread applies the initial-add rule to the entries a fetch of a
+// pending subscription inserted as read: the n of them (indices into list)
+// with the newest PublishedAt become unread; among equal times the earlier
+// position in list counts as newer, as in CreateFeed.
+func markNewestUnread(ctx context.Context, tx *sql.Tx, feedID int64, list []NewEntry, inserted []int, n int) error {
+	inserted = slices.Sorted(slices.Values(inserted))
+	sub := make([]NewEntry, len(inserted))
+	for j, i := range inserted {
+		sub[j] = list[i]
+	}
+	for j := range newestN(sub, n) {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE entries SET is_read = 0, read_at = NULL WHERE feed_id = ? AND guid = ?`,
+			feedID, sub[j].GUID); err != nil {
+			return fmt.Errorf("mark entry %q unread: %w", sub[j].GUID, err)
+		}
+	}
+	return nil
 }
 
 // DueFeeds returns feeds with next_fetch_at <= now, ordered by next_fetch_at.
@@ -199,6 +224,11 @@ func (s *SQLite) AdvanceNextFetch(ctx context.Context, id int64, at time.Time) (
 // published_at and fetched_at are never touched. Duplicate GUIDs in
 // r.Entries collapse (last one wins). Returns the number of inserted entries,
 // or ErrNotFound if the feed no longer exists (nothing is written then).
+//
+// When the feed's row is a pending subscription (initial_pending), the
+// inserted entries follow the initial-add rule instead (see
+// FetchSuccess.InitialUnread) and the flag is cleared, in the same
+// transaction: a failed write leaves the feed pending.
 func (s *SQLite) RecordFetchSuccess(ctx context.Context, r FetchSuccess) (int, error) {
 	fetchedAt := r.FetchedAt
 	if fetchedAt.IsZero() {
@@ -210,8 +240,13 @@ func (s *SQLite) RecordFetchSuccess(ctx context.Context, r FetchSuccess) (int, e
 	}
 	var inserted int
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
-		err := execOne(ctx, tx, "feed", r.FeedID,
-			`UPDATE feeds SET error_count = 0, last_error = NULL, last_fetched_at = ?,
+		var pending bool
+		err := tx.QueryRowContext(ctx, `SELECT initial_pending FROM feeds WHERE id = ?`, r.FeedID).Scan(&pending)
+		if err != nil {
+			return fmt.Errorf("feed %d: %w", r.FeedID, classify(err))
+		}
+		err = execOne(ctx, tx, "feed", r.FeedID,
+			`UPDATE feeds SET error_count = 0, last_error = NULL, initial_pending = 0, last_fetched_at = ?,
 				next_fetch_at = ?, etag = ?, last_modified = ?, ttl_sec = ?,
 				site_url = COALESCE(?, site_url), icon_url = COALESCE(?, icon_url),
 				original_title = COALESCE(?, original_title)
@@ -221,8 +256,15 @@ func (s *SQLite) RecordFetchSuccess(ctx context.Context, r FetchSuccess) (int, e
 		if err != nil {
 			return err
 		}
-		inserted, err = upsertEntries(ctx, tx, r.FeedID, list, fetchedAt)
-		return err
+		added, err := upsertEntries(ctx, tx, r.FeedID, list, fetchedAt, pending)
+		if err != nil {
+			return err
+		}
+		inserted = len(added)
+		if pending {
+			return markNewestUnread(ctx, tx, r.FeedID, list, added, r.InitialUnread)
+		}
+		return nil
 	})
 	if err != nil {
 		return 0, fmt.Errorf("store: record fetch of feed %d: %w", r.FeedID, err)
@@ -248,6 +290,19 @@ func (s *SQLite) RecordFetchError(ctx context.Context, id int64, msg string, fet
 	err := execOne(ctx, s.db, "feed", id,
 		`UPDATE feeds SET error_count = error_count + 1, last_error = ?, last_fetched_at = ?,
 			next_fetch_at = ?
+		 WHERE id = ?`, nullStr(msg), nullUnix(fetchedAt), unixOrZero(next), id)
+	if err != nil {
+		return fmt.Errorf("store: record fetch error: %w", err)
+	}
+	return nil
+}
+
+// RecordFetchErrorKeepCount sets last_error, last_fetched_at and
+// next_fetch_at after a failure that does not count as one more in a row (a
+// manual refresh); error_count and entries are left untouched.
+func (s *SQLite) RecordFetchErrorKeepCount(ctx context.Context, id int64, msg string, fetchedAt, next time.Time) error {
+	err := execOne(ctx, s.db, "feed", id,
+		`UPDATE feeds SET last_error = ?, last_fetched_at = ?, next_fetch_at = ?
 		 WHERE id = ?`, nullStr(msg), nullUnix(fetchedAt), unixOrZero(next), id)
 	if err != nil {
 		return fmt.Errorf("store: record fetch error: %w", err)
