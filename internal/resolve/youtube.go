@@ -139,11 +139,12 @@ func playlistFeedURL(id string) string {
 func (r *Resolver) resolveYouTube(ctx context.Context, u *url.URL, ref ytRef) (*Result, error) {
 	switch ref.kind {
 	case ytFeed:
-		// Every spelling of a channel's feed (m., no www, http, extra
-		// parameters) becomes the canonical URL, so one channel is not
-		// subscribed twice under two URLs.
-		if id := channelIDOfFeed(u); id != "" {
-			return single(Candidate{URL: channelFeedURL(id)}), nil
+		// Every spelling of a channel's feed, or of one of its per-type
+		// upload feeds (m., no www, http, extra parameters), becomes the
+		// canonical URL, so one channel is not subscribed twice under two
+		// URLs.
+		if id, m := modeOfFeed(u); id != "" {
+			return single(Candidate{URL: ModeFeedURL(id, m)}), nil
 		}
 		return single(Candidate{URL: u.String()}), nil
 	case ytChannel:
@@ -470,18 +471,14 @@ func (r *Resolver) ConfirmChannel(ctx context.Context, id string) (Channel, erro
 }
 
 // ChannelAvatar returns the avatar of the YouTube channel whose video feed
-// is feedURL, read from the channel's page (youtube.com/channel/UC…) with
-// one request; see channelFromHTML. It is best-effort: "" when the page has
-// no usable avatar or is not that channel's page. For a feed that is not a
-// channel feed (IsChannelFeed) it returns "" without a request. Errors are
-// those of the fetch.
+// is feedURL (in any of its modes, see FeedMode), read from the channel's
+// page (youtube.com/channel/UC…) with one request; see channelFromHTML. It
+// is best-effort: "" when the page has no usable avatar or is not that
+// channel's page. For any other feed (IsChannelOrModeFeed) it returns ""
+// without a request. Errors are those of the fetch.
 func (r *Resolver) ChannelAvatar(ctx context.Context, feedURL string) (string, error) {
-	u, err := url.Parse(strings.TrimSpace(feedURL))
-	if err != nil {
-		return "", nil
-	}
-	id := channelIDOfFeed(u)
-	if id == "" {
+	id, _, ok := FeedMode(feedURL)
+	if !ok {
 		return "", nil
 	}
 	page := ytPageURL("channel", id)

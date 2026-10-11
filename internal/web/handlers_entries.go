@@ -53,7 +53,7 @@ func (s *server) loadScope(ctx context.Context, sc store.Scope) (scopeMeta, erro
 			return m, fmt.Errorf("get feed %d: %w", sc.ID, err)
 		}
 		m.title, m.subtitle = f.Title, kindLabel(f.Kind)
-		m.pending, m.pendingNext = f.InitialPending, f.NextFetchAt
+		m.pending, m.pendingNext = waitingFeed(f), f.NextFetchAt
 	case store.ScopeTag:
 		t, err := s.store.GetTag(ctx, sc.ID)
 		if err != nil {

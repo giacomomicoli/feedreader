@@ -28,6 +28,12 @@ import (
 // the checked ID only) fetched by this request or the Preview, or the
 // channel's own page the resolver fetched for an @handle, /c/… or /user/…
 // URL (see resolve.ChannelFromPage).
+//
+// A channel followed in a mode (only its regular videos or only its Shorts,
+// see mode.go) is never stored pending: its playlist feed may answer 404
+// also when the channel has no video of that type, which the channel's page
+// cannot tell from an outage. Such a subscription can be stored pending as
+// the channel's feed and switched to its mode afterwards.
 
 // pendingChannel returns the channel ID of feedURL when err, the failure of
 // a fetch of it, lets the add flow offer a pending subscription: feedURL is

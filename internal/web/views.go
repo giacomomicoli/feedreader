@@ -8,6 +8,7 @@ import (
 
 	"github.com/giacomomicoli/feedreader/internal/config"
 	"github.com/giacomomicoli/feedreader/internal/parse"
+	"github.com/giacomomicoli/feedreader/internal/resolve"
 	"github.com/giacomomicoli/feedreader/internal/store"
 )
 
@@ -402,7 +403,7 @@ func buildSidebar(d sidebarData, cur store.Scope) sidebarView {
 			Badge:     badgeView{ID: feedBadgeID(f.ID), N: d.counts.ByFeed[f.ID]},
 			Warn:      warnFeed(f),
 			LastError: f.LastError,
-			Waiting:   f.InitialPending,
+			Waiting:   waitingFeed(f),
 			Active:    cur.Kind == store.ScopeFeed && cur.ID == f.ID,
 		}
 		if fn.Active {
@@ -461,9 +462,25 @@ func buildCounts(d sidebarData, cur store.Scope) countsView {
 
 // warnFeed reports whether the UI flags f as broken: config.WarnAfterFailures
 // failures in a row, unless it is a subscription still waiting for its
-// feed's first answer, which is shown as waiting instead.
+// feed's first answer (waitingFeed), which is shown as waiting instead.
 func warnFeed(f store.Feed) bool {
-	return !f.InitialPending && f.ErrorCount >= config.WarnAfterFailures
+	return !waitingFeed(f) && f.ErrorCount >= config.WarnAfterFailures
+}
+
+// waitingFeed reports whether f is a subscription whose feed has not
+// answered since it was subscribed: one stored while its YouTube channel's
+// feed was down (only a channel's own feed is ever stored so), still
+// without entries. Its failures are shown as waiting, not as a broken feed.
+//
+// The pending flag alone does not say this: switching a channel between
+// its modes (see resolve.Mode) sets it too, so that the new URL's first
+// document follows the initial-add rule. Such a feed has answered before
+// and keeps its entries; a mode list that keeps failing (a channel without
+// Shorts) is a failing feed. A channel feed switched to while it still had
+// no entry at all (its feed never answered, or never listed anything) is
+// shown as waiting until its next successful fetch.
+func waitingFeed(f store.Feed) bool {
+	return f.InitialPending && !f.HasEntries && resolve.IsChannelFeed(f.URL)
 }
 
 // waitingText is the status of a subscription whose feed has not answered

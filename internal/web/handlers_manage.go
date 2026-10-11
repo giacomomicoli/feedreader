@@ -46,6 +46,10 @@ type feedSettingsView struct {
 	Pending bool
 	// Transcripts is the transcript panel of a YouTube source, or nil.
 	Transcripts *feedTranscriptsView
+	// Modes are the modes of a YouTube channel subscription (see
+	// modeOptions), the current one selected; nil for other feeds.
+	Modes    []modeOption
+	ModeNote string
 }
 
 // feedForPath loads the feed named by the {id} path value.
@@ -92,7 +96,12 @@ func (s *server) handleFeedSettings(w http.ResponseWriter, r *http.Request) {
 		ErrorCount:      f.ErrorCount,
 		LastError:       f.LastError,
 		Warn:            warnFeed(f),
-		Pending:         f.InitialPending,
+		Pending:         waitingFeed(f),
+	}
+	if f.Kind == store.KindYouTube {
+		if v.Modes = modeOptions(f.URL, ""); v.Modes != nil {
+			v.ModeNote = modeNote
+		}
 	}
 	if f.OriginalTitle != "" && f.OriginalTitle != f.Title {
 		v.OriginalTitle = f.OriginalTitle

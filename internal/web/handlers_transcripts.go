@@ -286,16 +286,25 @@ type feedTranscriptsView struct {
 	FeedID int64
 	On     bool // the source's switch
 	Note   string
-	// PendingNote is set while the source waits for its feed's first
-	// answer, whose videos are stored as an initial add.
+	// PendingNote is set while the source's next document is stored as an
+	// initial add (it waits for its feed's first answer, or was switched
+	// between videos and Shorts), whose videos get no transcript.
 	PendingNote string
 	Saved       bool
 }
 
 func newFeedTranscripts(f store.Feed, sw sched.TranscriptSwitches) *feedTranscriptsView {
 	v := &feedTranscriptsView{FeedID: f.ID, On: sw.Source}
-	if f.InitialPending {
+	// The next document of a pending feed is an initial add, which queues
+	// no transcripts: for a subscription that never answered (waitingFeed),
+	// and after a switch between videos and Shorts, whose new list is
+	// fetched as if newly added.
+	switch {
+	case waitingFeed(f):
 		v.PendingNote = "The videos of its feed's first answer arrive as when you add a source: they get no transcript."
+	case f.InitialPending:
+		v.PendingNote = "The videos of the new list's first answer arrive as when you add a source: they get no transcript. " +
+			"Videos already stored are not affected."
 	}
 	switch {
 	case !sw.Source:

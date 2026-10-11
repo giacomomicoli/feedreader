@@ -32,8 +32,9 @@ var errNoResult = errors.New("fetch returned no response")
 //     unread; validators and feed metadata are refreshed. With transcripts
 //     on, the new entries of a YouTube feed have their transcripts queued
 //     and RunTranscripts is woken (see RunTranscripts);
-//   - after a stored 304 or 200, a YouTube channel feed that still has no
-//     icon gets its channel's avatar (see backfillAvatar);
+//   - after a stored 304 or 200, a YouTube channel feed (in any mode, see
+//     mode.go) that still has no icon gets its channel's avatar (see
+//     backfillAvatar);
 //   - 301/308 ending in a 304 or a parseable feed: the stored URL follows
 //     the permanent redirect (kept when another feed already uses the new
 //     URL). A redirect to anything else is recorded as that failure and the
@@ -248,6 +249,7 @@ func (s *Scheduler) logPolled(f store.Feed, status, inserted int, took time.Dura
 // then held as long as one more failure in a row would delay it.
 func (s *Scheduler) recordFailure(ctx context.Context, f store.Feed, manual *manualRefresh, started, fetchedAt time.Time,
 	base time.Duration, cause error) time.Time {
+	s.noteFailure(f, cause)
 	errorCount := f.ErrorCount + 1
 	if manual != nil {
 		errorCount = max(f.ErrorCount, 1) // the delay of a failure at the current count

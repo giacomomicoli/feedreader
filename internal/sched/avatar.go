@@ -12,7 +12,9 @@ import (
 // avatar is read from its page on YouTube (resolve.Resolver.ChannelAvatar):
 // once a subscription is stored, unless the add flow already found it on
 // the page it fetched to resolve the URL, and after a successful poll of a
-// channel feed that still has none. Polls fetch each channel feed's page
+// channel feed that still has none. A channel followed in a mode (only
+// its regular videos or only its Shorts, see mode.go) counts as a channel
+// feed here. Polls fetch each channel feed's page
 // for this at most once per run of the scheduler, unless the avatar was
 // found (but could not be stored) or the request was cut short.
 
@@ -40,7 +42,7 @@ func (s *Scheduler) forgetAvatarTry(feedURL string) {
 // feedURL, fetching the channel's page through f, or "": not a channel
 // feed, no avatar on the page, or the page could not be fetched.
 func (s *Scheduler) lookupAvatar(ctx context.Context, f Fetcher, feedURL string) string {
-	if !resolve.IsChannelFeed(feedURL) {
+	if !resolve.IsChannelOrModeFeed(feedURL) {
 		return ""
 	}
 	avatar, err := resolve.New(f).ChannelAvatar(ctx, feedURL)
@@ -76,11 +78,11 @@ func (s *Scheduler) storeAvatar(ctx context.Context, f store.Feed, avatar string
 }
 
 // backfillAvatar gives f, a feed whose poll was just stored, its channel's
-// avatar when it is a YouTube channel feed without an icon. The page is
+// avatar when it is a YouTube channel feed (in any mode) without an icon. The page is
 // fetched by the worker that polled the feed, after the feed, so polling
 // never runs more than cfg.FetchWorkers requests at once.
 func (s *Scheduler) backfillAvatar(ctx context.Context, f store.Feed) {
-	if f.IconURL != "" || !resolve.IsChannelFeed(f.URL) || !s.firstAvatarTry(f.URL) {
+	if f.IconURL != "" || !resolve.IsChannelOrModeFeed(f.URL) || !s.firstAvatarTry(f.URL) {
 		return
 	}
 	avatar := s.lookupAvatar(ctx, s.fetcher, f.URL)

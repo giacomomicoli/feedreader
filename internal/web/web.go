@@ -41,6 +41,9 @@ type Scheduler interface {
 	// RequestTranscript queues an entry's transcript at the user's request
 	// (sched.ErrNotAVideo, sched.ErrTranscriptsOff, store.ErrConflict).
 	RequestTranscript(ctx context.Context, entryID int64) error
+	// SetMode makes a YouTube channel subscription follow all its uploads,
+	// only its regular videos or only its Shorts, by switching its feed URL.
+	SetMode(ctx context.Context, feedID int64, m resolve.Mode) (store.Feed, error)
 }
 
 // rescheduler is implemented by a Scheduler that can pull a feed's next poll
@@ -163,6 +166,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /feeds/{id}/move", s.handleFeedMove)
 	mux.HandleFunc("POST /feeds/{id}/interval", s.handleFeedInterval)
 	mux.HandleFunc("POST /feeds/{id}/transcripts", s.handleFeedTranscripts)
+	mux.HandleFunc("POST /feeds/{id}/mode", s.handleFeedMode)
 	mux.HandleFunc("GET /feeds/{id}/unsubscribe", s.handleUnsubscribeConfirm)
 	mux.HandleFunc("POST /feeds/{id}/unsubscribe", s.handleUnsubscribe)
 
