@@ -2,7 +2,7 @@ module github.com/giacomomicoli/feedreader
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/microcosm-cc/bluemonday v1.0.27
