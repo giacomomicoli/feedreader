@@ -372,7 +372,7 @@ func TestRefreshCheckOfOneFeedWaitsForThatFeedOnly(t *testing.T) {
 	c = wantNextCheck(t, f.check(c.url), c.url, 1)
 	f.fetched(f.yt.ID, f.now, f.now.Add(config.DefaultYouTubePollInterval), f.freshEntry("Fresh video"))
 	body := wantReloaded(t, f.check(c.url), refreshDoneText)
-	wantContains(t, body, `<h1 class="page-title">Channel</h1>`, `name="filter" value="all"`, "Fresh video",
+	wantContains(t, body, `<h1 class="page-title">Channel <span class="count" id="scope-count">`, `name="filter" value="all"`, "Fresh video",
 		`id="refresh-button"`)
 	if got, want := len(cardIDs(body)), len(f.entries(f.yt.ID)); got != want {
 		t.Errorf("reloaded feed grid has %d cards, want %d (filter all)", got, want)

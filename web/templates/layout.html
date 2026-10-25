@@ -10,6 +10,10 @@
   never swapped into the card or grid it was aimed at; static/app.js reports
   it in #notice.
 
+  static/theme.js comes first and is not deferred: it sets data-theme on
+  <html> (the switch's stored choice, or the system setting) before the
+  stylesheet paints anything.
+
   static/app.js is not deferred: it only adds listeners on the document, and
   the one for broken feed icons must be in place before any image can fail.
 
@@ -27,7 +31,11 @@
 <meta name="referrer" content="no-referrer">
 <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"409|422","swap":true},{"code":"400|404|413|500","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true}]}'>
 <title>{{.Title}} · feedreader</title>
+<script src="{{asset "theme.js"}}"></script>
 <link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
+<link rel="icon" href="{{asset "favicon-32.png"}}" type="image/png" sizes="32x32" media="(prefers-color-scheme: light)">
+<link rel="icon" href="{{asset "favicon-dark-32.png"}}" type="image/png" sizes="32x32" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="{{asset "apple-touch-icon.png"}}">
 <link rel="stylesheet" href="{{asset "app.css"}}">
 <script src="{{asset "htmx.min.js"}}" defer></script>
 <script src="{{asset "app.js"}}"></script>
@@ -91,4 +99,12 @@
 {{- else if eq . "refresh"}}<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v5h-5"/>
 {{- else if eq . "chevron"}}<path d="m9.5 6 6 6-6 6"/>
 {{- else if eq . "close"}}<path d="M6 6l12 12M18 6 6 18"/>
+{{- else if eq . "sun"}}<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/>
+{{- else if eq . "moon"}}<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/>
 {{- end}}</svg>{{end}}
+
+{{/* First in every top bar's toolbar. Hidden until static/app.js fills in
+     its state from data-theme (set by static/theme.js): without JavaScript
+     the page follows the system setting and the switch would do nothing.
+     aria-checked="true" means dark. */}}
+{{define "theme-switch"}}<button class="theme-switch" type="button" role="switch" aria-checked="true" aria-label="Dark theme" hidden><span class="theme-switch-slot ts-sun">{{template "icon" "sun"}}</span><span class="theme-switch-slot ts-moon">{{template "icon" "moon"}}</span></button>{{end}}

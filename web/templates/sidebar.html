@@ -4,7 +4,7 @@
 {{define "sidebar"}}
 <aside class="sidebar">
   <div class="sidebar-head">
-    <a class="brand" href="/">feedreader</a>
+    <a class="brand" href="/"><span class="brand-tile"><img class="logo-for-dark" src="{{asset "logo-dark-64.png"}}" alt="" width="30" height="30"><img class="logo-for-light" src="{{asset "logo-64.png"}}" alt="" width="30" height="30"></span>feedreader</a>
     <a class="btn btn-primary btn-add" href="/add">{{template "icon" "plus"}}<span>Add source</span></a>
   </div>
   <nav class="nav" aria-label="Scopes">
@@ -112,6 +112,7 @@
 {{define "oob-counts"}}
 {{range .Badges}}{{template "badge" .}}
 {{end}}{{template "sidebar-tags" .Tags}}
+{{with .Scope}}{{template "scope-count" .}}{{end}}
 {{end}}
 
 {{/* The initials stay hidden behind an icon unless static/app.js removes it because it failed to load. */}}

@@ -7,6 +7,7 @@
       <p class="topbar-sub">{{.KindLabel}} settings</p>
     </div>
     <div class="toolbar">
+      {{template "theme-switch"}}
       <a class="btn" href="{{.ScopeHref}}">View entries</a>
       <form method="post" action="/refresh" hx-post="/refresh" hx-target="#notice" hx-swap="innerHTML">
         <input type="hidden" name="scope" value="feed">

@@ -1,5 +1,5 @@
-// feedreader — failed htmx requests, the entry drawer and its tabs, and
-// broken feed icons.
+// feedreader — failed htmx requests, the entry drawer and its tabs, the
+// theme switch, and broken feed icons.
 // Plain script, no build step; loaded from 'self' as the
 // Content-Security-Policy requires, and not deferred (see the end of the
 // file).
@@ -191,6 +191,42 @@
       next.focus();
     }
   });
+
+  // The theme switch in each top bar: static/theme.js has already set
+  // data-theme on <html> before the first paint. A click flips it and keeps
+  // the choice in localStorage. The switch is rendered hidden (it does
+  // nothing without JavaScript) and its state is filled in here, also for
+  // top bars that htmx swaps in later.
+  var THEME_KEY = "feedreader-theme";
+
+  function syncThemeSwitches() {
+    var dark = document.documentElement.getAttribute("data-theme") !== "light";
+    document.querySelectorAll(".theme-switch").forEach(function (btn) {
+      btn.setAttribute("aria-checked", dark ? "true" : "false");
+      btn.title = dark ? "Switch to light theme" : "Switch to dark theme";
+      btn.hidden = false;
+    });
+  }
+
+  document.addEventListener("click", function (evt) {
+    var btn = evt.target instanceof Element ? evt.target.closest(".theme-switch") : null;
+    if (!btn) {
+      return;
+    }
+    var next = btn.getAttribute("aria-checked") === "true" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try {
+      window.localStorage.setItem(THEME_KEY, next);
+    } catch (e) {
+      // Private mode or storage blocked: the choice lasts until the page
+      // is left.
+    }
+    syncThemeSwitches();
+  });
+
+  document.addEventListener("DOMContentLoaded", syncThemeSwitches);
+  document.addEventListener("htmx:load", syncThemeSwitches);
+  document.addEventListener("theme-changed", syncThemeSwitches);
 
   // Feed icons and channel avatars are hot-linked and can stop loading (a
   // site drops its favicon, a channel changes its avatar). The feed's

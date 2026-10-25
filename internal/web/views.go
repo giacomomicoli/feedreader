@@ -266,8 +266,36 @@ type scopeView struct {
 	IsTag        bool
 	IsDigest     bool
 	SettingsHref string
+	// Count is the scope's unread count beside the title, the same number
+	// as its sidebar badge; nil for scopes without a badge (Watch later,
+	// Read later, Favourites, tags).
+	Count        *scopeCountView
 	Grid         gridView
 	OOB          bool // swapped out of band: the grid's reload after a refresh
+}
+
+// scopeCountView is the "N unread" beside a scope page's title. It keeps
+// its id when the count is 0 (empty), so that later out-of-band updates
+// (countsView.Scope) still find it.
+type scopeCountView struct {
+	N   int
+	OOB bool
+}
+
+// scopeUnread returns the unread count of sc as its sidebar badge shows
+// it, and false for scopes that have no badge.
+func scopeUnread(c store.UnreadCounts, sc store.Scope) (int, bool) {
+	switch sc.Kind {
+	case store.ScopeAll:
+		return c.All, true
+	case store.ScopeFeed:
+		return c.ByFeed[sc.ID], true
+	case store.ScopeFolder:
+		return c.ByFolder[sc.ID], true
+	case store.ScopeDigest:
+		return c.ByDigest[sc.ID], true
+	}
+	return 0, false
 }
 
 // navItem is a fixed sidebar entry (All, Watch later, Read later, Favourites).
@@ -344,10 +372,12 @@ type sidebarView struct {
 }
 
 // countsView holds every out-of-band sidebar update sent after an action
-// (counts are refreshed via htmx after every action).
+// (counts are refreshed via htmx after every action), and the count beside
+// the title when the action came from a scope page that shows one.
 type countsView struct {
 	Badges []badgeView
 	Tags   tagListView
+	Scope  *scopeCountView
 }
 
 // sidebarData is everything the sidebar is built from.
@@ -456,6 +486,10 @@ func buildCounts(d sidebarData, cur store.Scope) countsView {
 	}
 	for _, f := range d.feeds {
 		cv.Badges = append(cv.Badges, badgeView{ID: feedBadgeID(f.ID), N: d.counts.ByFeed[f.ID], OOB: true})
+	}
+	// cur is empty unless the request came from a scope page (currentScope).
+	if n, ok := scopeUnread(d.counts, cur); ok {
+		cv.Scope = &scopeCountView{N: n, OOB: true}
 	}
 	return cv
 }
