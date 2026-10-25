@@ -269,9 +269,9 @@ type scopeView struct {
 	// Count is the scope's unread count beside the title, the same number
 	// as its sidebar badge; nil for scopes without a badge (Watch later,
 	// Read later, Favourites, tags).
-	Count        *scopeCountView
-	Grid         gridView
-	OOB          bool // swapped out of band: the grid's reload after a refresh
+	Count *scopeCountView
+	Grid  gridView
+	OOB   bool // swapped out of band: the grid's reload after a refresh
 }
 
 // scopeCountView is the "N unread" beside a scope page's title. It keeps
