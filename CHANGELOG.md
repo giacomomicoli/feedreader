@@ -14,6 +14,12 @@ alpha releases are early previews meant for a single trusted user.
 - Sidebar folders with unread entries now start expanded, so new content is
   visible without opening each folder by hand (#28).
 
+### Fixed
+
+- While YouTube's feed is down, a channel followed with everything it uploads
+  now also gets the recordings of its past live streams: the fallback reads
+  the channel's Live tab as well as its Videos and Shorts tabs (#29).
+
 ## [0.1.0-alpha.1] - 2026-10-26
 
 First tagged release: an early alpha of a self-hosted, single-user feed reader

@@ -105,7 +105,7 @@ func TabAnswer(channelID string, tab innertube.Tab, ids ...string) []byte {
 	items = append(items, continuation())
 	grid := `{"richGridRenderer":{"contents":[` + strings.Join(items, ",") + `],"header":{"feedFilterChipBarRenderer":{"contents":[]}}}}`
 	tabs := []string{tabRenderer(channelID, "Home", homeParams, false, "")}
-	for _, t := range []innertube.Tab{innertube.TabVideos, innertube.TabShorts} {
+	for _, t := range []innertube.Tab{innertube.TabVideos, innertube.TabShorts, innertube.TabLive} {
 		content := ""
 		if t == tab {
 			content = grid

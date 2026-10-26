@@ -201,7 +201,7 @@ func TestYouTubeFallback(t *testing.T) {
 			t.Errorf("FR_YOUTUBE_FALLBACK=%q: err = %v, want an error naming the variable", v, err)
 		}
 	}
-	// The bounds of one fallback: one browse per tab, at most two tabs, and
+	// The bounds of one fallback: one browse per tab, at most three tabs, and
 	// at most as many player requests as a feed lists videos, spaced.
 	if YouTubeFallbackMaxBrowse < 1 || YouTubeFallbackMaxIDs < 1 || YouTubeFallbackMaxVideos < 1 ||
 		YouTubeFallbackMaxVideos > YouTubeFallbackMaxBrowse*YouTubeFallbackMaxIDs || YouTubeFallbackSpacing < time.Second {

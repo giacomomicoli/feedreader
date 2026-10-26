@@ -97,8 +97,10 @@ func (y *fakeYouTube) respond(_ context.Context, r fetch.Request) (*fetch.Result
 		}
 		if ids := y.tabs[body.Params]; len(ids) > 0 {
 			tab := innertube.TabVideos
-			if body.Params == innertube.TabShorts.Params {
-				tab = innertube.TabShorts
+			for _, t := range []innertube.Tab{innertube.TabShorts, innertube.TabLive} {
+				if body.Params == t.Params {
+					tab = t
+				}
 			}
 			return jsonAnswer(r, ittest.TabAnswer(chanID, tab, ids...)), nil
 		}
@@ -157,7 +159,8 @@ func videoEntry(t *testing.T, v ittest.Video) store.NewEntry {
 }
 
 // TestFallback_FeedDownStoresTheChannelsVideos: a channel feed answering
-// 404 is read from the web API in the same poll: both tabs, then one
+// 404 is read from the web API in the same poll: its three tabs (this
+// channel has no Live tab), then one
 // player request per video not stored yet (the Videos and Shorts tabs in
 // turn, newest first, at most config.YouTubeFallbackMaxVideos), and the
 // videos are stored unread as the feed would list them, failures cleared,
@@ -180,7 +183,7 @@ func TestFallback_FeedDownStoresTheChannelsVideos(t *testing.T) {
 	}
 
 	browsed, players := innerTubeCalls(t, fetcher.Calls())
-	if want := []string{innertube.TabVideos.Params, innertube.TabShorts.Params}; !slices.Equal(browsed, want) {
+	if want := []string{innertube.TabVideos.Params, innertube.TabShorts.Params, innertube.TabLive.Params}; !slices.Equal(browsed, want) {
 		t.Errorf("browsed %v, want %v", browsed, want)
 	}
 	var want []string
@@ -257,25 +260,32 @@ func TestFallback_KnownVideosNeedNoPlayerRequest(t *testing.T) {
 func chanVideosFeedURL() string { return chanVideosFeed }
 
 // TestFallback_ModesReadTheirOwnTab: the videos-only list reads the Videos
-// tab only, the Shorts-only list the Shorts tab only, the channel feed
-// both; a tab the channel does not have (the Home tab answered) gives no
-// video and no player request, while the other tab is still read.
+// tab only, the Shorts-only list the Shorts tab only, the channel feed all
+// three, live streams included (they are on neither of the other two); a
+// tab the channel does not have (the Home tab answered) gives no video and
+// no player request, while the other tabs are still read.
 func TestFallback_ModesReadTheirOwnTab(t *testing.T) {
-	videos, shorts := ittest.IDs("vid", 2), ittest.IDs("sho", 2)
+	videos, shorts, lives := ittest.IDs("vid", 2), ittest.IDs("sho", 2), ittest.IDs("liv", 2)
+	all := []string{innertube.TabVideos.Params, innertube.TabShorts.Params, innertube.TabLive.Params}
 	for _, tt := range []struct {
-		name, url       string
-		videos, shorts  []string
-		wantTabs, wantP []string
+		name, url             string
+		videos, shorts, lives []string
+		wantTabs, wantP       []string
 	}{
-		{"videos only", chanVideosFeed, videos, shorts, []string{innertube.TabVideos.Params}, videos},
-		{"shorts only", chanShortsFeed, videos, shorts, []string{innertube.TabShorts.Params}, shorts},
-		{"both", chanFeedURL, videos, shorts, []string{innertube.TabVideos.Params, innertube.TabShorts.Params},
-			[]string{videos[0], shorts[0], videos[1], shorts[1]}},
-		{"both, no Shorts tab", chanFeedURL, videos, nil, []string{innertube.TabVideos.Params, innertube.TabShorts.Params}, videos},
+		{"videos only", chanVideosFeed, videos, shorts, lives, []string{innertube.TabVideos.Params}, videos},
+		{"shorts only", chanShortsFeed, videos, shorts, lives, []string{innertube.TabShorts.Params}, shorts},
+		{"all", chanFeedURL, videos, shorts, lives, all,
+			[]string{videos[0], shorts[0], lives[0], videos[1], shorts[1], lives[1]}},
+		{"all, no Shorts or Live tab", chanFeedURL, videos, nil, nil, all, videos},
+		{"all, live streams only", chanFeedURL, nil, nil, lives, all, lives},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			st := openStore(t)
 			y := newFakeYouTube(tt.videos, tt.shorts)
+			y.tabs[innertube.TabLive.Params] = tt.lives
+			for i, id := range tt.lives {
+				y.videos[id] = testVideoOf(id, t0.Add(-time.Duration(i)*time.Hour-45*time.Minute))
+			}
 			f := addChannelFeed(t, st, tt.url)
 			fetcher := newFetcher(y.respond)
 			s := newClockedScheduler(t, st, fetcher, newClock(t0))
@@ -769,7 +779,7 @@ func TestPreview_FallbackWhenTheFeedIsDown(t *testing.T) {
 	if *p != want {
 		t.Fatalf("preview = %+v, want %+v", *p, want)
 	}
-	if browsed, players := innerTubeCalls(t, fetcher.Calls()); len(browsed) != 2 || len(players) != config.YouTubeFallbackMaxVideos {
+	if browsed, players := innerTubeCalls(t, fetcher.Calls()); len(browsed) != 3 || len(players) != config.YouTubeFallbackMaxVideos {
 		t.Errorf("browsed %d tabs, asked about %d videos", len(browsed), len(players))
 	}
 

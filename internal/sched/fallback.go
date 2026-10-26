@@ -47,9 +47,11 @@ import (
 // the fallback and the poll is recorded as the feed's own failure.
 
 // fallbackTabs are the tabs of a channel's page that hold what each mode
-// follows.
+// follows. The channel feed also lists the recordings of past live
+// streams, which are on neither the Videos nor the Shorts tab; the
+// videos-only list (UULF) leaves them out.
 var fallbackTabs = map[resolve.Mode][]innertube.Tab{
-	resolve.ModeBoth:   {innertube.TabVideos, innertube.TabShorts},
+	resolve.ModeBoth:   {innertube.TabVideos, innertube.TabShorts, innertube.TabLive},
 	resolve.ModeVideos: {innertube.TabVideos},
 	resolve.ModeShorts: {innertube.TabShorts},
 }
