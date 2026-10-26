@@ -1,4 +1,5 @@
-{{/* Left column: scopes, digests, tags, folders with their feeds, the
+{{/* Left column: scopes, digests, tags, the Videos and Blogs sections (folders
+     with their feeds of that kind, then the others), empty folders, the
      new-folder and new-digest forms, and the global video transcript
      switch. */}}
 {{define "sidebar"}}
@@ -27,22 +28,20 @@
     <h2 class="nav-heading">Tags</h2>
     {{template "sidebar-tags" .Tags}}
 
+    {{if not .HasFeeds}}
     <h2 class="nav-heading">Subscriptions</h2>
-    {{if not .HasFeeds}}<p class="nav-empty">No sources yet.</p>{{end}}
-    {{range .Folders}}
-    <details class="folder"{{if .Open}} open{{end}}>
-      <summary class="nav-item folder-row{{if .Active}} is-active{{end}}">
-        <span class="folder-toggle">{{template "icon" "chevron"}}</span>
-        <a class="nav-label" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>
-        {{template "badge" .Badge}}
-      </summary>
-      {{if .Feeds}}
-      <ul class="nav-list feed-list">{{range .Feeds}}{{template "feed-nav" .}}{{end}}</ul>
-      {{else}}<p class="nav-empty nav-indent">Empty folder</p>{{end}}
-    </details>
+    <p class="nav-empty">No sources yet.</p>
     {{end}}
+    {{range .Sections}}
+    <h2 class="nav-heading">{{.Label}}</h2>
+    {{range .Folders}}{{template "folder-nav" .}}{{end}}
     {{if .Uncategorized}}
     <ul class="nav-list feed-list uncategorized">{{range .Uncategorized}}{{template "feed-nav" .}}{{end}}</ul>
+    {{end}}
+    {{end}}
+    {{if .EmptyFolders}}
+    <h2 class="nav-heading">Empty folders</h2>
+    {{range .EmptyFolders}}{{template "folder-nav" .}}{{end}}
     {{end}}
     {{end}}
   </nav>
@@ -81,6 +80,20 @@
   <p class="field-note" id="transcripts-note" aria-live="polite">{{if .Saved}}Saved. {{end}}{{.Note}}</p>
   {{with .Error}}<p class="form-error">{{.}}</p>{{end}}
 </form>
+{{end}}
+
+{{/* A folder in a section, with its feeds of that kind, or an empty one. */}}
+{{define "folder-nav"}}
+<details class="folder"{{if .Open}} open{{end}}>
+  <summary class="nav-item folder-row{{if .Active}} is-active{{end}}">
+    <span class="folder-toggle">{{template "icon" "chevron"}}</span>
+    <a class="nav-label" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>
+    {{template "badge" .Badge}}
+  </summary>
+  {{if .Feeds}}
+  <ul class="nav-list feed-list">{{range .Feeds}}{{template "feed-nav" .}}{{end}}</ul>
+  {{else}}<p class="nav-empty nav-indent">Empty folder</p>{{end}}
+</details>
 {{end}}
 
 {{define "feed-nav"}}

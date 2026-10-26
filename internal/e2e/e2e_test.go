@@ -107,8 +107,10 @@ type scenario struct {
 
 func feedScope(id int64) string { return "/?scope=feed&id=" + strconv.FormatInt(id, 10) }
 
-func feedBadge(id int64) string   { return "badge-feed-" + strconv.FormatInt(id, 10) }
-func folderBadge(id int64) string { return "badge-folder-" + strconv.FormatInt(id, 10) }
+func feedBadge(id int64) string { return "badge-feed-" + strconv.FormatInt(id, 10) }
+
+// folderBadge is the badge of the blog's folder in the Blogs section.
+func folderBadge(id int64) string { return "badge-folder-" + strconv.FormatInt(id, 10) + "-rss" }
 
 // blogBadges are the sidebar badges while only the blog has unread entries:
 // All, the blog's folder and the blog itself all count n.
@@ -884,8 +886,12 @@ func (sc *scenario) unsubscribe(t *testing.T) {
 	if _, _, ok := home.badge(feedBadge(sc.blogID)); ok {
 		t.Errorf("the unsubscribed feed is still in the sidebar")
 	}
-	// Folders are kept; their count drops to zero.
-	expectBadges(t, home, false, map[string]int{"badge-all": 0, folderBadge(sc.folderID): 0})
+	// Folders are kept; the blog's, now empty, leaves the Blogs section for
+	// the empty folders, with its own badge at zero.
+	if _, _, ok := home.badge(folderBadge(sc.folderID)); ok {
+		t.Errorf("the emptied folder is still in the Blogs section")
+	}
+	expectBadges(t, home, false, map[string]int{"badge-all": 0, "badge-folder-" + strconv.FormatInt(sc.folderID, 10): 0})
 }
 
 // notPolledAfterUnsubscribe: a refresh of everything fetches the remaining

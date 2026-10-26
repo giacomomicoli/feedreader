@@ -19,6 +19,10 @@ alpha releases are early previews meant for a single trusted user.
 
 - Sidebar folders with unread entries now start expanded, so new content is
   visible without opening each folder by hand (#28).
+- The sidebar's Subscriptions are split into a Videos and a Blogs section. A
+  folder holding both kinds is listed in each, with only its sources of that
+  kind, their unread count and a view of only their entries; folders without
+  sources are listed under Empty folders (#31).
 
 ### Fixed
 
