@@ -59,12 +59,21 @@ func scanEntryView(r rowScanner) (EntryView, error) {
 // hold to the same entries.
 // The literal "= 1" comparisons let the planner use the partial indexes.
 func scopeFilter(s Scope) (string, []any, error) {
+	if s.FeedKind != "" && s.Kind != ScopeFolder {
+		return "", nil, fmt.Errorf("scope %q narrowed to feed kind %q: %w", s.Kind, s.FeedKind, ErrInvalid)
+	}
 	switch s.Kind {
 	case ScopeAll:
 		return "1", nil, nil
 	case ScopeFolder:
 		// An IN list keeps the work proportional to the folder's size.
-		return "e.feed_id IN (SELECT id FROM feeds WHERE folder_id = ?)", []any{s.ID}, nil
+		switch {
+		case s.FeedKind == "":
+			return "e.feed_id IN (SELECT id FROM feeds WHERE folder_id = ?)", []any{s.ID}, nil
+		case s.FeedKind.Valid():
+			return "e.feed_id IN (SELECT id FROM feeds WHERE folder_id = ? AND kind = ?)", []any{s.ID, string(s.FeedKind)}, nil
+		}
+		return "", nil, fmt.Errorf("unknown feed kind %q: %w", s.FeedKind, ErrInvalid)
 	case ScopeFeed:
 		return "e.feed_id = ?", []any{s.ID}, nil
 	case ScopeWatchLater:
@@ -292,15 +301,15 @@ func (s *SQLite) MarkScopeReadUpTo(ctx context.Context, sc Scope, maxID int64, a
 }
 
 // unreadCountsSQL answers every sidebar badge in one statement: a row
-// ("feed", feed id, folder id, unread count) per feed, each count answered
-// from the covering partial index entries_unread, then a row ("digest",
-// digest id, NULL, unread count) per digest with unread entries (see
-// digestUnreadSQL).
-const unreadCountsSQL = `SELECT 'feed', f.id, f.folder_id,
+// ("feed", feed id, folder id, feed kind, unread count) per feed, each
+// count answered from the covering partial index entries_unread, then a row
+// ("digest", digest id, NULL, NULL, unread count) per digest with unread
+// entries (see digestUnreadSQL).
+const unreadCountsSQL = `SELECT 'feed', f.id, f.folder_id, f.kind,
 		(SELECT count(*) FROM entries e WHERE e.feed_id = f.id AND e.is_read = 0)
 	FROM feeds f
 	UNION ALL
-	SELECT 'digest', digest_id, NULL, count(*) FROM (` + digestUnreadSQL + `) GROUP BY digest_id`
+	SELECT 'digest', digest_id, NULL, NULL, count(*) FROM (` + digestUnreadSQL + `) GROUP BY digest_id`
 
 // UnreadCounts computes all sidebar badges with a single query; folder and
 // overall totals are summed from the per-feed rows. Feeds, folders and
@@ -311,15 +320,17 @@ func (s *SQLite) UnreadCounts(ctx context.Context) (UnreadCounts, error) {
 		return UnreadCounts{}, fmt.Errorf("store: unread counts: %w", err)
 	}
 	defer rows.Close()
-	c := UnreadCounts{ByFeed: map[int64]int{}, ByFolder: map[int64]int{}, ByDigest: map[int64]int{}}
+	c := UnreadCounts{ByFeed: map[int64]int{}, ByFolder: map[int64]int{}, ByFolderKind: map[FolderKind]int{},
+		ByDigest: map[int64]int{}}
 	for rows.Next() {
 		var (
 			kind     string
 			id       int64
 			folderID sql.NullInt64
+			feedKind sql.NullString
 			n        int
 		)
-		if err := rows.Scan(&kind, &id, &folderID, &n); err != nil {
+		if err := rows.Scan(&kind, &id, &folderID, &feedKind, &n); err != nil {
 			return UnreadCounts{}, fmt.Errorf("store: unread counts: %w", err)
 		}
 		if n == 0 {
@@ -332,6 +343,7 @@ func (s *SQLite) UnreadCounts(ctx context.Context) (UnreadCounts, error) {
 		c.ByFeed[id] = n
 		if folderID.Valid {
 			c.ByFolder[folderID.Int64] += n
+			c.ByFolderKind[FolderKind{FolderID: folderID.Int64, Kind: Kind(feedKind.String)}] += n
 		}
 		c.All += n
 	}

@@ -39,6 +39,14 @@ func parseScope(v url.Values) (store.Scope, string, error) {
 	default:
 		return store.Scope{}, "", fmt.Errorf("%w: unknown scope %q", errBadScope, kind)
 	}
+	// A folder may be narrowed to its videos or its blogs (the sidebar's
+	// sections); no other scope may.
+	if fk := store.Kind(strings.TrimSpace(v.Get("kind"))); fk != "" {
+		if kind != store.ScopeFolder || !fk.Valid() {
+			return store.Scope{}, "", fmt.Errorf("%w: %s cannot be narrowed to kind %q", errBadScope, kind, fk)
+		}
+		sc.FeedKind = fk
+	}
 
 	filter := strings.TrimSpace(v.Get("filter"))
 	switch filter {
@@ -71,7 +79,7 @@ func scopeHasID(k store.ScopeKind) bool {
 }
 
 // scopeParams returns the query string (without "?") selecting scope and
-// filter, in a stable, readable order: scope, id, filter.
+// filter, in a stable, readable order: scope, id, kind, filter.
 func scopeParams(sc store.Scope, filter string) string {
 	var b strings.Builder
 	b.WriteString("scope=")
@@ -79,6 +87,10 @@ func scopeParams(sc store.Scope, filter string) string {
 	if scopeHasID(sc.Kind) {
 		b.WriteString("&id=")
 		b.WriteString(strconv.FormatInt(sc.ID, 10))
+	}
+	if sc.FeedKind != "" {
+		b.WriteString("&kind=")
+		b.WriteString(url.QueryEscape(string(sc.FeedKind)))
 	}
 	if filter != "" {
 		b.WriteString("&filter=")

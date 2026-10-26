@@ -296,9 +296,10 @@ func TestListEntries_GridQueriesWalkAnIndexInOrder(t *testing.T) {
 			}
 		}
 	}
-	// Folder and tag scopes read only their own entries through an index
-	// (and sort that page of the library); they never scan the table.
-	for _, sc := range []Scope{{Kind: ScopeFolder, ID: 1}, {Kind: ScopeTag, ID: 1}} {
+	// Folder (narrowed to a kind or not) and tag scopes read only their own
+	// entries through an index (and sort that page of the library); they
+	// never scan the table.
+	for _, sc := range []Scope{{Kind: ScopeFolder, ID: 1}, {Kind: ScopeFolder, ID: 1, FeedKind: KindRSS}, {Kind: ScopeTag, ID: 1}} {
 		for _, unread := range []bool{false, true} {
 			query, args, err := listQuerySQL(ListQuery{Scope: sc, UnreadOnly: unread, Limit: config.ScopePageSize, After: cursor})
 			mustNoErr(t, err)

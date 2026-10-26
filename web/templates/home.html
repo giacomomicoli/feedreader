@@ -22,6 +22,7 @@
       <form method="post" action="/mark-read" hx-post="/mark-read" hx-target="#scope-view" hx-swap="outerHTML">
         <input type="hidden" name="scope" value="{{.Kind}}">
         {{if .ID}}<input type="hidden" name="id" value="{{.ID}}">{{end}}
+        {{with .FeedKind}}<input type="hidden" name="kind" value="{{.}}">{{end}}
         <input type="hidden" name="filter" value="{{.Filter}}">
         <input type="hidden" name="up_to" value="{{.UpTo}}">
         <button class="btn" type="submit">Mark all as read</button>
@@ -29,6 +30,7 @@
       <form method="post" action="/refresh" hx-post="/refresh" hx-target="#notice" hx-swap="innerHTML">
         <input type="hidden" name="scope" value="{{.Kind}}">
         {{if .ID}}<input type="hidden" name="id" value="{{.ID}}">{{end}}
+        {{with .FeedKind}}<input type="hidden" name="kind" value="{{.}}">{{end}}
         <input type="hidden" name="filter" value="{{.Filter}}">
         <input type="hidden" name="back" value="{{.Href}}">
         <input type="hidden" name="reload" value="grid">

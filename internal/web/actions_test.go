@@ -45,10 +45,10 @@ func (f actionFixture) wantCardWithCounts(t *testing.T, body string, all, folder
 	}
 	got := oobBadges(body)
 	want := map[string]string{
-		"badge-all":                          all,
-		"badge-folder-" + idStr(f.folder.ID): folder,
-		"badge-feed-" + idStr(f.yt.ID):       yt,
-		"badge-feed-" + idStr(f.blog.ID):     blog,
+		"badge-all": all,
+		"badge-folder-" + idStr(f.folder.ID) + "-youtube": folder,
+		"badge-feed-" + idStr(f.yt.ID):                    yt,
+		"badge-feed-" + idStr(f.blog.ID):                  blog,
 	}
 	for id, v := range want {
 		if got[id] != v {
@@ -283,7 +283,7 @@ func TestMarkAllAsReadMarksScopeUpToPageWatermarkAndRerendersGrid(t *testing.T) 
 	}
 	wantContains(t, body, `name="up_to"`, late[0].Title)
 	got := oobBadges(body)
-	if got["badge-all"] != "3" || got["badge-folder-"+idStr(f.folder.ID)] != "1" ||
+	if got["badge-all"] != "3" || got["badge-folder-"+idStr(f.folder.ID)+"-youtube"] != "1" ||
 		got["badge-feed-"+idStr(f.yt.ID)] != "1" || got["badge-feed-"+idStr(f.blog.ID)] != "2" {
 		t.Errorf("OOB badges after mark all = %v", got)
 	}

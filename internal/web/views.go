@@ -36,6 +36,12 @@ type badgeView struct {
 
 func feedBadgeID(id int64) string   { return "badge-feed-" + strconv.FormatInt(id, 10) }
 func folderBadgeID(id int64) string { return "badge-folder-" + strconv.FormatInt(id, 10) }
+
+// folderKindBadgeID is the badge of a folder in the sidebar section of a
+// kind: a folder with videos and blogs is listed, and counted, in both.
+func folderKindBadgeID(k store.FolderKind) string {
+	return folderBadgeID(k.FolderID) + "-" + string(k.Kind)
+}
 func digestBadgeID(id int64) string { return "badge-digest-" + strconv.FormatInt(id, 10) }
 
 const allBadgeID = "badge-all"
@@ -254,6 +260,7 @@ type scopeView struct {
 	Subtitle     string
 	Kind         store.ScopeKind
 	ID           int64
+	FeedKind     store.Kind // a folder narrowed to one kind, or ""
 	Filter       string
 	ShowFilter   bool
 	UnreadOnly   bool
@@ -292,6 +299,9 @@ func scopeUnread(c store.UnreadCounts, sc store.Scope) (int, bool) {
 	case store.ScopeFeed:
 		return c.ByFeed[sc.ID], true
 	case store.ScopeFolder:
+		if sc.FeedKind != "" {
+			return c.ByFolderKind[store.FolderKind{FolderID: sc.ID, Kind: sc.FeedKind}], true
+		}
 		return c.ByFolder[sc.ID], true
 	case store.ScopeDigest:
 		return c.ByDigest[sc.ID], true
@@ -356,14 +366,36 @@ type tagListView struct {
 	OOB  bool
 }
 
-// sidebarView is the whole left column.
-type sidebarView struct {
-	Nav           []navItem
-	Digests       []digestNav
-	Tags          tagListView
+// sidebarSection is one kind's part of the subscriptions: its folders (each
+// with only its feeds of that kind, linking to the folder narrowed to it),
+// then its feeds outside any folder.
+type sidebarSection struct {
+	Label         string // "Videos", "Blogs"
 	Folders       []folderNav
 	Uncategorized []feedNav
-	HasFeeds      bool
+}
+
+// sidebarKinds are the feed kinds in the order of their sidebar sections.
+var sidebarKinds = []store.Kind{store.KindYouTube, store.KindRSS}
+
+// sectionLabel names the sidebar section of feed kind k.
+func sectionLabel(k store.Kind) string {
+	if k == store.KindYouTube {
+		return "Videos"
+	}
+	return "Blogs"
+}
+
+// sidebarView is the whole left column.
+type sidebarView struct {
+	Nav      []navItem
+	Digests  []digestNav
+	Tags     tagListView
+	Sections []sidebarSection // only the kinds that have feeds
+	// EmptyFolders are the folders without any feed, which belong to no
+	// section: listed apart so they can still be opened, renamed or deleted.
+	EmptyFolders []folderNav
+	HasFeeds     bool
 	// Transcripts is the global transcript switch; nil on error pages.
 	Transcripts *transcriptsSettingView
 	// Unavailable is set on error pages rendered without database access:
@@ -423,9 +455,11 @@ func buildSidebar(d sidebarData, cur store.Scope) sidebarView {
 	for _, fo := range d.folders {
 		known[fo.ID] = true
 	}
-	byFolder := make(map[int64][]feedNav)
-	activeFolder := int64(0)
+	byFolder := make(map[store.FolderKind][]feedNav)
+	uncategorized := make(map[store.Kind][]feedNav)
+	activeFolder := store.FolderKind{}
 	for _, f := range d.feeds {
+		kind := f.Kind
 		fn := feedNav{
 			ID:        f.ID,
 			Title:     f.Title,
@@ -437,32 +471,69 @@ func buildSidebar(d sidebarData, cur store.Scope) sidebarView {
 			Waiting:   waitingFeed(f),
 			Active:    cur.Kind == store.ScopeFeed && cur.ID == f.ID,
 		}
+		key := store.FolderKind{FolderID: f.FolderID, Kind: kind}
 		if fn.Active {
-			activeFolder = f.FolderID
+			activeFolder = key
 		}
 		// Feeds whose folder vanished concurrently are shown uncategorized.
 		if f.FolderID == 0 || !known[f.FolderID] {
-			sv.Uncategorized = append(sv.Uncategorized, fn)
+			uncategorized[kind] = append(uncategorized[kind], fn)
 			continue
 		}
-		byFolder[f.FolderID] = append(byFolder[f.FolderID], fn)
+		byFolder[key] = append(byFolder[key], fn)
+	}
+	for _, kind := range sidebarKinds {
+		sec := sidebarSection{Label: sectionLabel(kind), Uncategorized: uncategorized[kind]}
+		for _, fo := range d.folders {
+			key := store.FolderKind{FolderID: fo.ID, Kind: kind}
+			feeds := byFolder[key]
+			if len(feeds) == 0 {
+				continue
+			}
+			// The unnarrowed folder page is active in every section.
+			active := cur.Kind == store.ScopeFolder && cur.ID == fo.ID && (cur.FeedKind == "" || cur.FeedKind == kind)
+			unread := d.counts.ByFolderKind[key]
+			sec.Folders = append(sec.Folders, folderNav{
+				ID:    fo.ID,
+				Name:  fo.Name,
+				Href:  scopeHref(store.Scope{Kind: store.ScopeFolder, ID: fo.ID, FeedKind: kind}, ""),
+				Badge: badgeView{ID: folderKindBadgeID(key), N: unread},
+				// A folder with unread entries starts expanded, so new content
+				// shows without opening every folder by hand.
+				Open:   active || unread > 0 || activeFolder == key,
+				Active: active,
+				Feeds:  feeds,
+			})
+		}
+		if len(sec.Folders) > 0 || len(sec.Uncategorized) > 0 {
+			sv.Sections = append(sv.Sections, sec)
+		}
 	}
 	for _, fo := range d.folders {
+		if hasFolderFeeds(d.feeds, fo.ID) {
+			continue
+		}
 		active := cur.Kind == store.ScopeFolder && cur.ID == fo.ID
-		unread := d.counts.ByFolder[fo.ID]
-		sv.Folders = append(sv.Folders, folderNav{
-			ID:    fo.ID,
-			Name:  fo.Name,
-			Href:  scopeHref(store.Scope{Kind: store.ScopeFolder, ID: fo.ID}, ""),
-			Badge: badgeView{ID: folderBadgeID(fo.ID), N: unread},
-			// A folder with unread entries starts expanded, so new content
-			// shows without opening every folder by hand.
-			Open:   active || unread > 0 || (activeFolder != 0 && activeFolder == fo.ID),
+		sv.EmptyFolders = append(sv.EmptyFolders, folderNav{
+			ID:     fo.ID,
+			Name:   fo.Name,
+			Href:   scopeHref(store.Scope{Kind: store.ScopeFolder, ID: fo.ID}, ""),
+			Badge:  badgeView{ID: folderBadgeID(fo.ID)},
+			Open:   active,
 			Active: active,
-			Feeds:  byFolder[fo.ID],
 		})
 	}
 	return sv
+}
+
+// hasFolderFeeds reports whether any of feeds is in folder id.
+func hasFolderFeeds(feeds []store.Feed, id int64) bool {
+	for _, f := range feeds {
+		if f.FolderID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func buildTagList(tags []store.Tag, cur store.Scope, oob bool) tagListView {
@@ -485,8 +556,21 @@ func buildCounts(d sidebarData, cur store.Scope) countsView {
 	for _, dg := range d.digests {
 		cv.Badges = append(cv.Badges, badgeView{ID: digestBadgeID(dg.ID), N: d.counts.ByDigest[dg.ID], OOB: true})
 	}
+	// One badge per folder and kind it has feeds of, as buildSidebar shows
+	// them; a folder without feeds has a badge of its own, always empty.
+	seen := map[store.FolderKind]bool{}
+	for _, f := range d.feeds {
+		key := store.FolderKind{FolderID: f.FolderID, Kind: f.Kind}
+		if f.FolderID == 0 || seen[key] {
+			continue
+		}
+		seen[key] = true
+		cv.Badges = append(cv.Badges, badgeView{ID: folderKindBadgeID(key), N: d.counts.ByFolderKind[key], OOB: true})
+	}
 	for _, fo := range d.folders {
-		cv.Badges = append(cv.Badges, badgeView{ID: folderBadgeID(fo.ID), N: d.counts.ByFolder[fo.ID], OOB: true})
+		if !hasFolderFeeds(d.feeds, fo.ID) {
+			cv.Badges = append(cv.Badges, badgeView{ID: folderBadgeID(fo.ID), OOB: true})
+		}
 	}
 	for _, f := range d.feeds {
 		cv.Badges = append(cv.Badges, badgeView{ID: feedBadgeID(f.ID), N: d.counts.ByFeed[f.ID], OOB: true})

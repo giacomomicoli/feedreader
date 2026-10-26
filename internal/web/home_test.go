@@ -40,7 +40,7 @@ func TestHomeRendersSidebarScopesFoldersFeedsAndTags(t *testing.T) {
 	// folder = sum of its feeds, All = everything.
 	wantContains(t, body,
 		`<span class="badge" id="badge-all">8</span>`,
-		`<span class="badge" id="badge-folder-`+idStr(tech.ID)+`">5</span>`,
+		`<span class="badge" id="badge-folder-`+idStr(tech.ID)+`-youtube">5</span>`,
 		`<span class="badge" id="badge-feed-`+idStr(yt.ID)+`">5</span>`,
 		`<span class="badge" id="badge-feed-`+idStr(blog.ID)+`">3</span>`,
 	)

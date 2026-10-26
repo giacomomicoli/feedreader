@@ -24,8 +24,13 @@ var (
 )
 
 // Kind is a feed kind. It only affects YouTube channel-ID resolution at add
-// time, the default poll interval and rendering (labels, thumbnails).
+// time, the default poll interval, rendering (labels, thumbnails, the
+// sidebar's Videos and Blogs sections) and a folder's grid narrowed to one
+// kind (Scope.FeedKind).
 type Kind string
+
+// Valid reports whether k is one of the feed kinds.
+func (k Kind) Valid() bool { return k == KindRSS || k == KindYouTube }
 
 const (
 	KindRSS     Kind = "rss"
@@ -394,6 +399,15 @@ const (
 type Scope struct {
 	Kind ScopeKind
 	ID   int64
+	// FeedKind narrows a folder to its feeds of that kind ("" = all of
+	// them); it is set for no other scope.
+	FeedKind Kind
+}
+
+// FolderKind is a folder's feeds of one kind (UnreadCounts.ByFolderKind).
+type FolderKind struct {
+	FolderID int64
+	Kind     Kind
 }
 
 // IgnoresReadFilter reports whether the scope lists entries regardless of
@@ -433,6 +447,8 @@ type UnreadCounts struct {
 	All      int
 	ByFeed   map[int64]int // feed id → unread entries (absent = 0)
 	ByFolder map[int64]int // folder id → sum over its feeds (absent = 0)
+	// ByFolderKind is ByFolder split by feed kind (absent = 0).
+	ByFolderKind map[FolderKind]int
 	// ByDigest maps a digest id to its unread entries, each counted once
 	// however many of its sources it belongs to (absent = 0).
 	ByDigest map[int64]int

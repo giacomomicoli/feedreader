@@ -47,6 +47,9 @@ func (s *server) loadScope(ctx context.Context, sc store.Scope) (scopeMeta, erro
 			return m, fmt.Errorf("get folder %d: %w", sc.ID, err)
 		}
 		m.title, m.subtitle = f.Name, "Folder"
+		if sc.FeedKind != "" {
+			m.subtitle = "Folder, " + strings.ToLower(sectionLabel(sc.FeedKind)) + " only"
+		}
 	case store.ScopeFeed:
 		f, err := s.store.GetFeed(ctx, sc.ID)
 		if err != nil {
@@ -130,6 +133,7 @@ func (s *server) buildScopeView(ctx context.Context, m scopeMeta, filter string,
 		Subtitle:   m.subtitle,
 		Kind:       sc.Kind,
 		ID:         sc.ID,
+		FeedKind:   sc.FeedKind,
 		Filter:     filter,
 		ShowFilter: !sc.IgnoresReadFilter(),
 		UnreadOnly: filter == filterUnread,
