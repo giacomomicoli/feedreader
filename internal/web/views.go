@@ -448,12 +448,15 @@ func buildSidebar(d sidebarData, cur store.Scope) sidebarView {
 	}
 	for _, fo := range d.folders {
 		active := cur.Kind == store.ScopeFolder && cur.ID == fo.ID
+		unread := d.counts.ByFolder[fo.ID]
 		sv.Folders = append(sv.Folders, folderNav{
-			ID:     fo.ID,
-			Name:   fo.Name,
-			Href:   scopeHref(store.Scope{Kind: store.ScopeFolder, ID: fo.ID}, ""),
-			Badge:  badgeView{ID: folderBadgeID(fo.ID), N: d.counts.ByFolder[fo.ID]},
-			Open:   active || (activeFolder != 0 && activeFolder == fo.ID),
+			ID:    fo.ID,
+			Name:  fo.Name,
+			Href:  scopeHref(store.Scope{Kind: store.ScopeFolder, ID: fo.ID}, ""),
+			Badge: badgeView{ID: folderBadgeID(fo.ID), N: unread},
+			// A folder with unread entries starts expanded, so new content
+			// shows without opening every folder by hand.
+			Open:   active || unread > 0 || (activeFolder != 0 && activeFolder == fo.ID),
 			Active: active,
 			Feeds:  byFolder[fo.ID],
 		})

@@ -31,7 +31,7 @@ func TestHomeRendersSidebarScopesFoldersFeedsAndTags(t *testing.T) {
 		`href="/add"`, "Add source",
 		">All<", ">Watch later<", ">Read later<", ">Favourites<",
 		`id="sidebar-tags"`, ">golang<",
-		`<details class="folder">`, ">Tech channels<",
+		`<details class="folder" open>`, ">Tech channels<",
 		">Go Channel<", ">Plain Blog<",
 		`action="/folders"`, "New folder",
 		"Mark all as read", "Refresh", ">Unread<", ">All</a>",
@@ -73,6 +73,20 @@ func TestFolderOfActiveFeedIsExpanded(t *testing.T) {
 	f := e.addFeed(store.KindRSS, "news", "Daily", fo.ID, makeEntries("n", 2))
 	body := e.get("/?scope=feed&id=" + idStr(f.ID)).Body.String()
 	wantContains(t, body, `<details class="folder" open>`, `aria-current="page">`)
+}
+
+func TestFolderIsExpandedOnlyWithUnreadEntries(t *testing.T) {
+	e := newTestEnv(t)
+	news := e.addFolder("News")
+	e.addFeed(store.KindRSS, "news", "Daily", news.ID, makeEntries("n", 2))
+	e.addFolder("Quiet")
+	body := e.get("/").Body.String()
+	if i, j := strings.Index(body, `<details class="folder" open>`), strings.Index(body, ">News<"); !(i >= 0 && i < j) {
+		t.Errorf("News folder not expanded")
+	}
+	if n := strings.Count(body, `<details class="folder">`); n != 1 {
+		t.Errorf("collapsed folders = %d, want 1 (Quiet, no unread)", n)
+	}
 }
 
 func TestFeedScopeLoadMorePagesInBlocksOfFive(t *testing.T) {
