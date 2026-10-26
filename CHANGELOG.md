@@ -9,6 +9,12 @@ alpha releases are early previews meant for a single trusted user.
 
 ## [Unreleased]
 
+### Added
+
+- Download a video's transcript as a Markdown file from its Transcription
+  tab: the video's title, channel, link, publication date and caption track,
+  then the transcript's paragraphs (#30).
+
 ### Changed
 
 - Sidebar folders with unread entries now start expanded, so new content is

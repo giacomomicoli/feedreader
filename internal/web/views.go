@@ -184,15 +184,16 @@ type entryView struct {
 
 // transcriptView is a video's transcript in the Transcription tab.
 type transcriptView struct {
-	Label string // "Transcript (en, auto-generated)"
-	Lang  string // language code of Text (lang attribute), or ""
-	Text  string // plain text with its line breaks
+	EntryID int64  // for the download link
+	Label   string // "Transcript (en, auto-generated)"
+	Lang    string // language code of Text (lang attribute), or ""
+	Text    string // plain text with its line breaks
 }
 
-// newTranscriptView labels t with its language code and whether YouTube
-// generated it: "Transcript (en, auto-generated)", "Transcript (de)", or
-// "Transcript".
-func newTranscriptView(t store.Transcript) *transcriptView {
+// newTranscriptView labels t, the transcript of entry id, with its language
+// code and whether YouTube generated it: "Transcript (en, auto-generated)",
+// "Transcript (de)", or "Transcript".
+func newTranscriptView(id int64, t store.Transcript) *transcriptView {
 	var notes []string
 	if t.Lang != "" {
 		notes = append(notes, t.Lang)
@@ -204,7 +205,7 @@ func newTranscriptView(t store.Transcript) *transcriptView {
 	if len(notes) > 0 {
 		label += " (" + strings.Join(notes, ", ") + ")"
 	}
-	return &transcriptView{Label: label, Lang: t.Lang, Text: t.Text}
+	return &transcriptView{EntryID: id, Label: label, Lang: t.Lang, Text: t.Text}
 }
 
 func newEntryView(e store.EntryView, now time.Time, drawer bool) entryView {
