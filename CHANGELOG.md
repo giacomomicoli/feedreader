@@ -9,6 +9,11 @@ alpha releases are early previews meant for a single trusted user.
 
 ## [Unreleased]
 
+### Changed
+
+- Sidebar folders with unread entries now start expanded, so new content is
+  visible without opening each folder by hand (#28).
+
 ## [0.1.0-alpha.1] - 2026-10-26
 
 First tagged release: an early alpha of a self-hosted, single-user feed reader
