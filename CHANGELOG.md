@@ -9,6 +9,10 @@ alpha releases are early previews meant for a single trusted user.
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-10-26
+
+Second alpha: the four open issues of the first one. No database migrations.
+
 ### Added
 
 - Download a video's transcript as a Markdown file from its Transcription
@@ -23,6 +27,7 @@ alpha releases are early previews meant for a single trusted user.
   folder holding both kinds is listed in each, with only its sources of that
   kind, their unread count and a view of only their entries; folders without
   sources are listed under Empty folders (#31).
+- `golang.org/x/net` updated from 0.60.0 to 0.61.0.
 
 ### Fixed
 
@@ -89,5 +94,6 @@ for YouTube channels and blogs.
 - Built with Go 1.26.10, which fixes GO-2026-6809 (compromised intermediate
   certificates trusted by `crypto/x509`).
 
-[Unreleased]: https://github.com/giacomomicoli/feedreader/compare/v0.1.0-alpha.1...HEAD
+[Unreleased]: https://github.com/giacomomicoli/feedreader/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/giacomomicoli/feedreader/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/giacomomicoli/feedreader/releases/tag/v0.1.0-alpha.1
