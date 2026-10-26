@@ -62,8 +62,12 @@
 </article>
 {{end}}
 
-{{/* The Transcription tab's content (GET /entries/{id}/transcript for htmx). */}}
-{{define "entry-transcript"}}<p class="field-note entry-transcript-label">{{.Label}}</p>
+{{/* The Transcription tab's content (GET /entries/{id}/transcript for htmx),
+     with a link to download it as a Markdown file. */}}
+{{define "entry-transcript"}}<div class="entry-transcript-head">
+  <p class="field-note entry-transcript-label">{{.Label}}</p>
+  <a class="btn btn-small btn-quiet" href="/entries/{{.EntryID}}/transcript.md" download>{{template "icon" "download"}}<span>Download</span></a>
+</div>
 <div class="entry-transcript-text"{{with .Lang}} lang="{{.}}"{{end}}>{{.Text}}</div>{{end}}
 
 {{/* A video's transcript status under the tabs; the button posts with htmx and gets this fragment back. */}}

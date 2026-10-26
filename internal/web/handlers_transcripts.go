@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -155,10 +156,45 @@ func (s *server) handleEntryTranscript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isHTMX(r) {
-		s.renderFragment(w, r, http.StatusOK, "entry-transcript", newTranscriptView(t), false)
+		s.renderFragment(w, r, http.StatusOK, "entry-transcript", newTranscriptView(id, t), false)
 		return
 	}
-	s.renderEntry(w, r, id, tabTranscript, newTranscriptView(t))
+	s.renderEntry(w, r, id, tabTranscript, newTranscriptView(id, t))
+}
+
+// handleTranscriptDownload is the transcript as a Markdown file (GET
+// /entries/{id}/transcript.md; see transcriptMarkdown), named after the
+// video. 404 unless the transcript was fetched.
+func (s *server) handleTranscriptDownload(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	ctx := r.Context()
+	t, err := s.store.GetTranscript(ctx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			s.writeError(w, r, http.StatusNotFound, "This entry has no transcript.")
+			return
+		}
+		s.fail(w, r, fmt.Errorf("get transcript of entry %d: %w", id, err))
+		return
+	}
+	e, err := s.store.GetEntry(ctx, id)
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("get entry %d: %w", id, err))
+		return
+	}
+	body := transcriptMarkdown(e, t)
+	h := w.Header()
+	h.Set("Content-Type", "text/markdown; charset=utf-8")
+	h.Set("Content-Disposition", transcriptDisposition(e.Title))
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = io.WriteString(w, body)
+	}
 }
 
 // handleTranscriptFetch queues an entry's transcript at the user's request

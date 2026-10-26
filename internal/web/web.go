@@ -146,6 +146,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /entries", s.handleEntries)
 	mux.HandleFunc("GET /entries/{id}", s.handleEntry)
 	mux.HandleFunc("GET /entries/{id}/transcript", s.handleEntryTranscript)
+	mux.HandleFunc("GET /entries/{id}/transcript.md", s.handleTranscriptDownload)
 	mux.HandleFunc("POST /entries/{id}/transcript/fetch", s.handleTranscriptFetch)
 	mux.HandleFunc("POST /entries/{id}/{action}", s.handleEntryAction)
 	mux.HandleFunc("POST /entries/{id}/tags", s.handleAddTag)
