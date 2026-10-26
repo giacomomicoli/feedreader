@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,7 +80,13 @@ func dsn(abs string) string {
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Set("_txlock", "immediate")
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(abs), RawQuery: q.Encode()}
+	p := filepath.ToSlash(abs)
+	if !strings.HasPrefix(p, "/") {
+		// A Windows path (C:/…) needs the leading slash of file:///C:/…;
+		// without it SQLite reads "C:" as the URI's authority.
+		p = "/" + p
+	}
+	u := url.URL{Scheme: "file", Path: p, RawQuery: q.Encode()}
 	return u.String()
 }
 

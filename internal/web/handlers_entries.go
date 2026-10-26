@@ -157,6 +157,13 @@ func (s *server) buildScopeView(ctx context.Context, m scopeMeta, filter string,
 		v.Grid = gridView{NoFeeds: true}
 		return v, nil
 	}
+	counts, err := s.store.UnreadCounts(ctx)
+	if err != nil {
+		return v, fmt.Errorf("unread counts: %w", err)
+	}
+	if n, ok := scopeUnread(counts, sc); ok {
+		v.Count = &scopeCountView{N: n}
+	}
 	// The watermark is read before the entries are listed: every entry
 	// stored after this point has a larger id, so "Mark all as read" leaves
 	// it unread whatever its fetch time or the clock says.

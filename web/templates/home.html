@@ -7,11 +7,11 @@
 <div id="scope-view" class="scope-view"{{if .OOB}} hx-swap-oob="true"{{end}}>
   <header class="topbar">
     <div class="topbar-title">
-      <h1 class="page-title">{{.Title}}</h1>
+      <h1 class="page-title">{{.Title}}{{with .Count}} {{template "scope-count" .}}{{end}}</h1>
       {{if .Subtitle}}<p class="topbar-sub">{{.Subtitle}}</p>{{end}}
     </div>
-    {{if or .HasFeeds .IsFolder .IsTag .IsDigest}}
     <div class="toolbar">
+      {{template "theme-switch"}}
       {{if .HasFeeds}}
       {{if .ShowFilter}}
       <nav class="segmented" aria-label="Show">
@@ -58,12 +58,16 @@
       <a class="btn btn-quiet-danger" href="/tags/{{.ID}}/delete" hx-get="/tags/{{.ID}}/delete" hx-target="#scope-confirm" hx-swap="innerHTML">Delete tag</a>
       {{end}}
     </div>
-    {{end}}
   </header>
   <div id="scope-confirm"></div>
   {{template "grid" .Grid}}
 </div>
 {{end}}
+
+{{/* "N unread" beside the title of a scope that has a sidebar badge, the
+     same number. Empty at 0 but kept, so the out-of-band copy appended to
+     every action from this page (oob-counts) can update it. */}}
+{{define "scope-count"}}<span class="count" id="scope-count"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .N}}{{.N}} unread{{end}}</span>{{end}}
 
 {{define "grid"}}
 <div class="grid" id="grid">

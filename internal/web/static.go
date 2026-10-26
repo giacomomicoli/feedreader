@@ -16,9 +16,11 @@ import (
 // contentTypes pins the types of our own assets so they do not depend on the
 // host's mime.types (some systems map .js to text/plain).
 var contentTypes = map[string]string{
-	".css": "text/css; charset=utf-8",
-	".js":  "text/javascript; charset=utf-8",
-	".svg": "image/svg+xml",
+	".css":   "text/css; charset=utf-8",
+	".js":    "text/javascript; charset=utf-8",
+	".svg":   "image/svg+xml",
+	".png":   "image/png",
+	".woff2": "font/woff2",
 }
 
 // staticFile is an embedded asset held in memory with its content hash.

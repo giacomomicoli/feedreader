@@ -163,7 +163,7 @@ func TestDigestScopePage(t *testing.T) {
 	wantStatus(t, w, http.StatusOK)
 	body := w.Body.String()
 	wantContains(t, body,
-		`<h1 class="page-title">Morning</h1>`, `<p class="topbar-sub">Digest</p>`,
+		`<h1 class="page-title">Morning <span class="count" id="scope-count">`, `<p class="topbar-sub">Digest</p>`,
 		`<a class="btn" href="/digests/`+idStr(fx.digest.ID)+`">Digest settings</a>`,
 		`<input type="hidden" name="scope" value="digest">`, `<input type="hidden" name="id" value="`+idStr(fx.digest.ID)+`">`,
 		`hx-post="/mark-read"`, `id="refresh-button"`,

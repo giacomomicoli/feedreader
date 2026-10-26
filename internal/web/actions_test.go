@@ -359,6 +359,29 @@ func TestOOBTagListKeepsActiveTagHighlighted(t *testing.T) {
 	wantContains(t, body, `class="nav-item tag-row is-active" href="/?scope=tag&amp;id=`+idStr(tag.ID)+`" aria-current="page"`)
 }
 
+// TestScopeCountBesideTitleFollowsTheBadge: a scope page with a sidebar
+// badge shows the same number beside its title, and an action taken on that
+// page updates it out of band like the badges.
+func TestScopeCountBesideTitleFollowsTheBadge(t *testing.T) {
+	f := newActionFixture(t)
+	wantContains(t, f.get("/").Body.String(),
+		`<h1 class="page-title">All <span class="count" id="scope-count">5 unread</span></h1>`)
+	folder := "/?scope=folder&id=" + idStr(f.folder.ID)
+	wantContains(t, f.get(folder).Body.String(), `<span class="count" id="scope-count">3 unread</span>`)
+	// Watch later has no badge, so no count either.
+	if body := f.get("/?scope=watchlater").Body.String(); strings.Contains(body, `id="scope-count"`) {
+		t.Error("Watch later shows an unread count")
+	}
+
+	body := f.post(f.entryPath("read"), nil, htmx, withHeader("HX-Current-URL", "http://"+testHost+folder)).Body.String()
+	wantContains(t, body, `<span class="count" id="scope-count" hx-swap-oob="true">2 unread</span>`)
+	// From a page that is not a scope page, no count is sent.
+	body = f.post(f.entryPath("unread"), nil, htmx).Body.String()
+	if strings.Contains(body, `id="scope-count"`) {
+		t.Error("an action outside a scope page sends the scope count")
+	}
+}
+
 // noticeClear is the out-of-band swap that empties #notice.
 const noticeClear = `<div id="notice" hx-swap-oob="innerHTML"></div>`
 
