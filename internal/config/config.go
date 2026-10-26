@@ -154,9 +154,9 @@ const (
 // These bound one fallback, in a poll or in the add flow.
 const (
 	// YouTubeFallbackMaxBrowse bounds the list requests of one fallback:
-	// one per tab, and a channel followed with all its uploads has two
-	// (videos and Shorts).
-	YouTubeFallbackMaxBrowse = 2
+	// one per tab, and a channel followed with all its uploads has three
+	// (videos, Shorts and live streams).
+	YouTubeFallbackMaxBrowse = 3
 	// YouTubeFallbackMaxIDs bounds the videos taken from one tab: the
 	// newest, as many as a channel's feed lists.
 	YouTubeFallbackMaxIDs = 15

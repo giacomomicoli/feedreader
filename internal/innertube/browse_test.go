@@ -54,11 +54,25 @@ func TestParseBrowse_ShortsTab(t *testing.T) {
 	}
 }
 
+// TestParseBrowse_LiveTab: the Live tab's grid lists its streams as the
+// Videos tab lists its videos, and is read only when asked for.
+func TestParseBrowse_LiveTab(t *testing.T) {
+	ids := ittest.IDs("liv", 3)
+	body := ittest.TabAnswer(testChannel, innertube.TabLive, ids...)
+	got, err := innertube.ParseBrowse(body, jsonType, innertube.TabLive.Params, maxIDs)
+	if err != nil || !slices.Equal(got, ids) {
+		t.Fatalf("ParseBrowse = %v, %v; want %v", got, err, ids)
+	}
+	if got, err := innertube.ParseBrowse(body, jsonType, innertube.TabVideos.Params, maxIDs); !errors.Is(err, innertube.ErrNoTab) || got != nil {
+		t.Fatalf("Videos tab of a Live answer = %v, %v; want ErrNoTab", got, err)
+	}
+}
+
 // TestParseBrowse_HomeTab: a channel without the tab asked for gets its
 // Home tab, whose shelves may list other channels' videos: no IDs at all.
 func TestParseBrowse_HomeTab(t *testing.T) {
 	body := ittest.HomeAnswer(testChannel, ittest.IDs("foreign", 20)...)
-	for _, tab := range []innertube.Tab{innertube.TabVideos, innertube.TabShorts} {
+	for _, tab := range []innertube.Tab{innertube.TabVideos, innertube.TabShorts, innertube.TabLive} {
 		got, err := innertube.ParseBrowse(body, jsonType, tab.Params, maxIDs)
 		if !errors.Is(err, innertube.ErrNoTab) || got != nil {
 			t.Errorf("%s: ParseBrowse = %v, %v; want ErrNoTab", tab.Name, got, err)

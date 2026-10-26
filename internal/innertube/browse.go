@@ -23,10 +23,12 @@ type Tab struct {
 
 // The tabs the fallback reads: a channel's regular videos (no Shorts, no
 // live streams) and its Shorts, the same split as its videos-only and
-// Shorts-only upload lists.
+// Shorts-only upload lists, and its live streams (recordings of past ones,
+// as well as those on air or upcoming), which only the channel feed lists.
 var (
 	TabVideos = Tab{Name: "videos", Params: "EgZ2aWRlb3PyBgQKAjoA"}
 	TabShorts = Tab{Name: "shorts", Params: "EgZzaG9ydHPyBgUKA5oBAA%3D%3D"}
+	TabLive   = Tab{Name: "live", Params: "EgdzdHJlYW1z8gYECgJ6AA%3D%3D"}
 )
 
 // BrowseRequest returns the POST asking for tab of the channel channelID
