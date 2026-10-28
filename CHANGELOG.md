@@ -9,6 +9,13 @@ alpha releases are early previews meant for a single trusted user.
 
 ## [Unreleased]
 
+### Security
+
+- `golang.org/x/net` updated from 0.61.0 to 0.62.0, fixing GO-2026-6866
+  (namespace checks when rendering raw text in HTML) and GO-2026-6860
+  (quadratic complexity when coalescing text nodes), both reachable through
+  feed parsing and sanitizing.
+
 ## [0.1.0-alpha.2] - 2026-10-26
 
 Second alpha: the four open issues of the first one. No database migrations.
