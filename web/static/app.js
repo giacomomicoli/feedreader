@@ -217,7 +217,6 @@
     frame.src = src;
     frame.title = player.getAttribute("data-title") || "YouTube video";
     frame.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");
-    frame.setAttribute("allowfullscreen", "");
     frame.setAttribute("referrerpolicy", "strict-origin");
     frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox");
     poster.hidden = true;
