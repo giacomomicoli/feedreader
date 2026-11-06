@@ -156,6 +156,11 @@ func (s *server) buildScopeView(ctx context.Context, m scopeMeta, filter string,
 		return v, fmt.Errorf("list feeds: %w", err)
 	}
 	v.HasFeeds = len(feeds) > 0
+	if v.IsFeed {
+		if v.MoveFolders, err = s.moveFolders(ctx, feeds, sc.ID); err != nil {
+			return v, err
+		}
+	}
 	if !v.HasFeeds {
 		// With no feeds, the empty state is a single "Add your first source" card.
 		v.Grid = gridView{NoFeeds: true}
@@ -184,6 +189,26 @@ func (s *server) buildScopeView(ctx context.Context, m scopeMeta, filter string,
 		v.Grid.EmptyLink = ""
 	}
 	return v, err
+}
+
+// moveFolders lists the folders feed id can be moved to from its page, its
+// current one selected, or nil when there is no folder at all.
+func (s *server) moveFolders(ctx context.Context, feeds []store.Feed, id int64) ([]folderOption, error) {
+	folders, err := s.store.ListFolders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list folders: %w", err)
+	}
+	if len(folders) == 0 {
+		return nil, nil
+	}
+	var current int64
+	for _, f := range feeds {
+		if f.ID == id {
+			current = f.FolderID
+			break
+		}
+	}
+	return folderOptions(folders, current), nil
 }
 
 // handleHome renders the card grid page for ?scope=…&id=…&filter=….

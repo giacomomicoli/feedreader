@@ -189,7 +189,8 @@ func (s *server) handleFeedMove(w http.ResponseWriter, r *http.Request) {
 	if err := s.sched.ScheduleIngest(r.Context(), []int64{f.ID}); err != nil {
 		s.log.Warn("could not schedule digest ingestion after moving a feed", "feed", f.ID, "err", err)
 	}
-	s.redirect(w, r, settingsHref(f.ID))
+	// The feed's page sends itself as back; the settings page sends none.
+	s.redirect(w, r, safeBack(r.PostForm.Get("back"), settingsHref(f.ID)))
 }
 
 // handleFeedInterval sets or clears the per-feed poll interval override.

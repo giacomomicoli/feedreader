@@ -274,6 +274,10 @@ type scopeView struct {
 	IsTag        bool
 	IsDigest     bool
 	SettingsHref string
+	// MoveFolders are the folders a feed's page offers to move the feed to
+	// (its own selected); empty unless the scope is a feed and there is at
+	// least one folder.
+	MoveFolders []folderOption
 	// Count is the scope's unread count beside the title, the same number
 	// as its sidebar badge; nil for scopes without a badge (Watch later,
 	// Read later, Favourites, tags).
