@@ -114,6 +114,62 @@ func TestAddResolveSingleCandidateGoesStraightToPreview(t *testing.T) {
 	}
 }
 
+// TestAddIntoAFolderPickedBeforehand: a folder's plus in the sidebar opens
+// /add?folder=ID; every step carries the folder on (one candidate, several,
+// the direct feed URL), the confirmation form has it selected, and Start
+// over and Cancel keep it. A folder that does not exist is ignored.
+func TestAddIntoAFolderPickedBeforehand(t *testing.T) {
+	e := newTestEnv(t)
+	e.addFolder("News")
+	tech := e.addFolder("Tech")
+	tid := idStr(tech.ID)
+	carried := `<input type="hidden" name="folder" value="` + tid + `">`
+	selected := `<option value="` + tid + `" selected>Tech</option>`
+
+	home := e.get("/").Body.String()
+	wantContains(t, home, `<a class="folder-add" href="/add?folder=`+tid+`" title="Add a source to Tech">`)
+
+	w := e.get("/add?folder=" + tid)
+	wantStatus(t, w, http.StatusOK)
+	body := w.Body.String()
+	wantContains(t, body, "It goes into the folder <strong>Tech</strong>.", carried)
+	checkCSPMarkup(t, "add page", body)
+
+	for _, q := range []string{"", "?folder=0", "?folder=9999", "?folder=abc"} {
+		w := e.get("/add" + q)
+		wantStatus(t, w, http.StatusOK)
+		wantNotContains(t, w.Body.String(), "It goes into the folder", `type="hidden" name="folder"`)
+	}
+
+	// One candidate: straight to the confirmation form, the folder selected.
+	e.res.results["youtube.com/@go"] = &resolve.Result{Candidates: []resolve.Candidate{{URL: ytFeedURL}}}
+	e.stubPreview(ytFeedURL, "The Go Channel", store.KindYouTube, 3)
+	body = e.post("/add/resolve", url.Values{"url": {"youtube.com/@go"}, "folder": {tid}}, htmx).Body.String()
+	wantContains(t, body, selected, `>News</option>`, `href="/add?folder=`+tid+`">Cancel</a>`)
+	wantNotContains(t, body, ` selected>News</option>`)
+
+	// Several candidates: the choice carries it on to the preview.
+	e.res.results["https://blog.example.com"] = &resolve.Result{Candidates: []resolve.Candidate{
+		{URL: blogFeedURL, Title: "Posts"}, {URL: "https://blog.example.com/comments.xml", Title: "Comments"}}}
+	body = e.post("/add/resolve", url.Values{"url": {"https://blog.example.com"}, "folder": {tid}}, htmx).Body.String()
+	wantContains(t, body, carried, `href="/add?folder=`+tid+`">Start over</a>`)
+	e.stubPreview(blogFeedURL, "Posts", store.KindRSS, 2)
+	body = e.post("/add/preview", url.Values{"url": {"https://blog.example.com"}, "feed_url": {blogFeedURL}, "folder": {tid}}, htmx).Body.String()
+	wantContains(t, body, selected)
+
+	// A failed lookup keeps it on both forms it shows.
+	e.res.errs["nofeed.example"] = resolve.ErrNoFeed
+	body = e.post("/add/resolve", url.Values{"url": {"nofeed.example"}, "folder": {tid}}, htmx).Body.String()
+	if n := strings.Count(body, carried); n != 2 {
+		t.Errorf("folder carried by %d forms after an error, want 2", n)
+	}
+
+	// Without a folder picked, nothing is selected.
+	body = e.post("/add/preview", url.Values{"feed_url": {blogFeedURL}}, htmx).Body.String()
+	wantNotContains(t, body, selected)
+	wantContains(t, body, `href="/add">Cancel</a>`)
+}
+
 func TestAddChannelAvatarIsCarriedToTheSubscription(t *testing.T) {
 	const avatar = "https://yt3.googleusercontent.com/synthetic-avatar"
 	e := newTestEnv(t)

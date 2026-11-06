@@ -43,6 +43,46 @@ type addView struct {
 	Folders     []folderOption
 	NewSelected bool
 	NewFolder   string
+	// Folder is the folder picked before the flow started, from a folder's
+	// plus in the sidebar (/add?folder=ID): every step's form carries it
+	// on, and the confirmation form has it selected. Zero for none.
+	Folder     int64
+	FolderName string
+}
+
+// StartHref is the add-source page the flow's Start over and Cancel go
+// back to, keeping the folder picked beforehand.
+func (v addView) StartHref() string { return addHref(v.Folder) }
+
+// addHref is the add-source page, with folder id already picked unless 0.
+func addHref(folder int64) string {
+	if folder == 0 {
+		return "/add"
+	}
+	return "/add?folder=" + strconv.FormatInt(folder, 10)
+}
+
+// presetFolder reads the folder picked before the add flow started (the
+// "folder" query or form value of its first steps). One that is not a
+// folder id, or no longer exists, is ignored: the flow then starts without.
+func (s *server) presetFolder(r *http.Request, v *addView) error {
+	raw := r.FormValue("folder")
+	if raw == "" || raw == "0" {
+		return nil
+	}
+	id, err := parseID(raw)
+	if err != nil {
+		return nil
+	}
+	f, err := s.store.GetFolder(r.Context(), id)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("get folder %d: %w", id, err)
+	}
+	v.Folder, v.FolderName = f.ID, f.Name
+	return nil
 }
 
 // conflictView links to a feed the user is already subscribed to.
@@ -142,9 +182,15 @@ func (s *server) renderAdd(w http.ResponseWriter, r *http.Request, status int, v
 	s.renderPage(w, r, status, "add", "Add source", store.Scope{}, v)
 }
 
-// handleAddPage shows the URL input.
+// handleAddPage shows the URL input, with ?folder=ID the folder its source
+// goes into.
 func (s *server) handleAddPage(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, http.StatusOK, "add", "Add source", store.Scope{}, addView{Step: stepURL})
+	v := addView{Step: stepURL}
+	if err := s.presetFolder(r, &v); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.renderPage(w, r, http.StatusOK, "add", "Add source", store.Scope{}, v)
 }
 
 // handleAddResolve resolves the pasted URL to one or more feeds.
@@ -155,6 +201,10 @@ func (s *server) handleAddResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	input := strings.TrimSpace(r.PostForm.Get("url"))
 	v := addView{Step: stepURL, URL: input}
+	if err := s.presetFolder(r, &v); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	if input == "" || len(input) > maxURLLen {
 		v.Error = resolve.ErrInvalidURL.Error()
 		s.renderAdd(w, r, http.StatusUnprocessableEntity, v)
@@ -172,7 +222,7 @@ func (s *server) handleAddResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(res.Candidates) == 1 {
 		c := res.Candidates[0]
-		s.previewStep(w, r, c.URL, c.IconURL, input)
+		s.previewStep(w, r, c.URL, c.IconURL, v)
 		return
 	}
 	v.Step = stepChoose
@@ -194,17 +244,22 @@ func (s *server) handleAddPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input := strings.TrimSpace(r.PostForm.Get("url"))
+	v := addView{Step: stepURL, URL: input}
+	if err := s.presetFolder(r, &v); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	feedURL := normalizeFeedURL(r.PostForm.Get("feed_url"))
 	if feedURL == "" {
-		v := addView{Step: stepURL, URL: input, Error: resolve.ErrInvalidURL.Error(),
-			ShowDirect: true, DirectURL: r.PostForm.Get("feed_url")}
+		v.Error = resolve.ErrInvalidURL.Error()
+		v.ShowDirect, v.DirectURL = true, r.PostForm.Get("feed_url")
 		s.renderAdd(w, r, http.StatusUnprocessableEntity, v)
 		return
 	}
-	if input == "" {
-		input = feedURL
+	if v.URL == "" {
+		v.URL = feedURL
 	}
-	s.previewStep(w, r, feedURL, "", input)
+	s.previewStep(w, r, feedURL, "", v)
 }
 
 // normalizeFeedURL accepts a typed feed URL, defaulting to https:// when
@@ -229,10 +284,11 @@ func normalizeFeedURL(raw string) string {
 
 // previewStep shows "already subscribed", an inline fetch error, or the
 // confirmation form for feedURL, which carries iconURL (what the resolver
-// found, or "") on to the subscription.
-func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, iconURL, input string) {
+// found, or "") on to the subscription. v holds what the user typed and
+// the folder picked beforehand, which the confirmation form has selected.
+func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, iconURL string, v addView) {
 	ctx := r.Context()
-	v := addView{Step: stepURL, URL: input}
+	v.Step = stepURL
 	if s.renderIfSubscribed(w, r, feedURL, v) {
 		return
 	}
@@ -266,7 +322,7 @@ func (s *server) previewStep(w http.ResponseWriter, r *http.Request, feedURL, ic
 	// now by the server.
 	v.Preview = newPreviewView(finalURL, p.Kind, p.SiteURL, cmp.Or(p.IconURL, iconURL), p.EntryCount, p.Pending, p.Fallback)
 	v.Title = p.Title
-	v.Folders = folderOptions(folders, 0)
+	v.Folders = folderOptions(folders, v.Folder)
 	s.renderAdd(w, r, http.StatusOK, v)
 }
 
