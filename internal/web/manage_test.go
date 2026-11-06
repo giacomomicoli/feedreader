@@ -66,6 +66,54 @@ func TestFeedSettingsShowTheDefaultIntervalOfTheFeedsKind(t *testing.T) {
 	check(videos, e.srv.cfg.PollIntervalYouTube)
 }
 
+// TestMoveFromTheFeedsPage: a feed's page offers to move the feed to
+// another folder, its own selected, once there is a folder; the move
+// answers with the feed's page, and an unsafe back with its settings.
+func TestMoveFromTheFeedsPage(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+	f := e.addFeed(store.KindRSS, "blog", "Blog", 0, makeEntries("b", 1))
+	page := feedHref(f.ID, "")
+	body := e.get(page).Body.String()
+	wantNotContains(t, body, `id="feed-move-folder"`)
+
+	news := e.addFolder("News")
+	tech := e.addFolder("Tech")
+	if err := e.st.MoveFeed(ctx, f.ID, news.ID); err != nil {
+		t.Fatal(err)
+	}
+	w := e.get(page)
+	wantStatus(t, w, http.StatusOK)
+	body = w.Body.String()
+	wantContains(t, body,
+		`<summary class="btn">Move</summary>`,
+		`hx-post="/feeds/`+idStr(f.ID)+`/move" hx-target="#err-feed-move"`,
+		`<input type="hidden" name="back" value="`+strings.ReplaceAll(feedHref(f.ID, filterUnread), "&", "&amp;")+`">`,
+		`<option value="0">No folder</option>`,
+		`<option value="`+idStr(news.ID)+`" selected>News</option>`,
+		`<option value="`+idStr(tech.ID)+`">Tech</option>`)
+	checkCSPMarkup(t, "feed page", body)
+
+	// Other scopes do not offer it.
+	wantNotContains(t, e.get(scopeHref(store.Scope{Kind: store.ScopeFolder, ID: news.ID}, "")).Body.String(), `id="feed-move-folder"`)
+
+	w = e.post("/feeds/"+idStr(f.ID)+"/move", url.Values{"folder": {idStr(tech.ID)}, "back": {page}}, htmx)
+	wantStatus(t, w, http.StatusOK)
+	if got := w.Header().Get("HX-Redirect"); got != page {
+		t.Errorf("HX-Redirect = %q, want %q", got, page)
+	}
+	if got, _ := e.st.GetFeed(ctx, f.ID); got.FolderID != tech.ID {
+		t.Errorf("folder = %d, want %d", got.FolderID, tech.ID)
+	}
+	w = e.post("/feeds/"+idStr(f.ID)+"/move", url.Values{"folder": {"0"}, "back": {"//evil.example/"}}, htmx)
+	if got := w.Header().Get("HX-Redirect"); got != settingsHref(f.ID) {
+		t.Errorf("HX-Redirect for an unsafe back = %q", got)
+	}
+	if got, _ := e.st.GetFeed(ctx, f.ID); got.FolderID != 0 {
+		t.Errorf("feed not moved out of its folder")
+	}
+}
+
 func TestFeedRenameMoveAndInterval(t *testing.T) {
 	e := newTestEnv(t)
 	ctx := context.Background()

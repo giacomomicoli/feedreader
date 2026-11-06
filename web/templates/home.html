@@ -38,7 +38,26 @@
         {{/* The id lets htmx give the button its focus back when the grid is reloaded. */}}
         <button class="btn" id="refresh-button" type="submit">{{template "icon" "refresh"}}<span>Refresh</span></button>
       </form>
-      {{if .IsFeed}}<a class="btn" href="{{.SettingsHref}}">Feed settings</a>{{end}}
+      {{if .IsFeed}}
+      {{if .MoveFolders}}
+      <details class="popover">
+        <summary class="btn">Move</summary>
+        <form class="popover-body" method="post" action="/feeds/{{.ID}}/move" hx-post="/feeds/{{.ID}}/move" hx-target="#err-feed-move" hx-swap="innerHTML">
+          <input type="hidden" name="back" value="{{.Href}}">
+          <label for="feed-move-folder">Move to folder</label>
+          <div class="input-row">
+            <select id="feed-move-folder" name="folder">
+              <option value="0">No folder</option>
+              {{range .MoveFolders}}<option value="{{.ID}}"{{if .Selected}} selected{{end}}>{{.Name}}</option>{{end}}
+            </select>
+            <button class="btn btn-primary" type="submit">Move</button>
+          </div>
+          <p class="form-error" id="err-feed-move" aria-live="polite"></p>
+        </form>
+      </details>
+      {{end}}
+      <a class="btn" href="{{.SettingsHref}}">Feed settings</a>
+      {{end}}
       {{end}}
       {{/* Folder, tag and digest actions do not depend on having feeds. */}}
       {{if .IsDigest}}<a class="btn" href="{{.SettingsHref}}">Digest settings</a>{{end}}
