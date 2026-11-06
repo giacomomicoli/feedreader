@@ -1,4 +1,5 @@
-// feedreader — light or dark theme, decided before the first paint.
+// feedreader — light or dark theme, and the entries' layout, decided
+// before the first paint.
 // Loaded in <head>, before app.css and not deferred, so the page never
 // flashes in the wrong theme. The choice made with the theme switch (see
 // static/app.js) is kept in localStorage; without one the page follows the
@@ -25,6 +26,18 @@
   }
 
   apply();
+
+  // The entries' layout, cards or list (the layout switch in static/app.js),
+  // is set here too, so a list never shows as cards first. Cards unless
+  // the list was chosen.
+  try {
+    if (window.localStorage.getItem("feedreader-view") === "list") {
+      root.setAttribute("data-view", "list");
+    }
+  } catch (e) {
+    // Storage blocked: cards.
+  }
+
   if (system && system.addEventListener) {
     system.addEventListener("change", function () {
       if (!stored()) {

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -252,6 +253,67 @@ func TestCardLabelsDependOnFeedKind(t *testing.T) {
 	blogBody := e.get("/?scope=feed&id=" + idStr(blog.ID)).Body.String()
 	wantContains(t, blogBody, `<span class="status is-unread">Unread</span>`, ">Mark read</button>", ">Read later</button>")
 	wantNotContains(t, blogBody, ">Mark watched</button>", ">Watch later</button>")
+}
+
+// TestListViewMarkup: each scope's top bar has the layout switch (hidden
+// until static/app.js shows it), and each card carries what the list view
+// shows: its description, and its actions as icon buttons, the ones whose
+// state is set marked, which act like the menu's.
+func TestListViewMarkup(t *testing.T) {
+	e := newTestEnv(t)
+	yt := e.addFeed(store.KindYouTube, "yt", "Videos", 0, makeEntries("yt", 1))
+	blog := e.addFeed(store.KindRSS, "blog", "Articles", 0, makeEntries("blog", 1))
+	ev := e.entries(yt.ID)[0]
+	base := "/entries/" + idStr(ev.ID) + "/"
+
+	body := e.get("/").Body.String()
+	wantContains(t, body,
+		`<div class="view-switch" role="group" aria-label="Layout" hidden>`,
+		`data-view="cards" aria-pressed="true" title="Cards">`,
+		`data-view="list" aria-pressed="false" title="List">`,
+		// The description, cut short in the list, opens the drawer with all of it.
+		`<a class="card-excerpt opens-drawer" href="/entries/`+idStr(ev.ID)+`" hx-get="/entries/`+idStr(ev.ID)+
+			`" hx-target="#entry-drawer" hx-swap="innerHTML" aria-haspopup="dialog" title="Show the full description">Summary of yt entry 0</a>`,
+		`<form method="post" action="`+base+`read" hx-post="`+base+`read">`,
+		`<button class="icon-btn quick-btn" type="submit" title="Mark watched">`,
+		`<span class="sr-only">Mark watched: yt entry 0</span>`,
+		`<button class="icon-btn quick-btn" type="submit" title="Watch later">`)
+	checkCSPMarkup(t, "home", body)
+	wantContains(t, e.get("/?scope=feed&id="+idStr(blog.ID)).Body.String(),
+		`<button class="icon-btn quick-btn" type="submit" title="Read later">`)
+
+	wantStatus(t, e.post(base+"favourite", url.Values{}, htmx), http.StatusOK)
+	wantStatus(t, e.post(base+"read", url.Values{}, htmx), http.StatusOK)
+	body = e.get("/?scope=feed&id=" + idStr(yt.ID) + "&filter=all").Body.String()
+	wantContains(t, body,
+		`<form method="post" action="`+base+`unread" hx-post="`+base+`unread">`,
+		`<button class="icon-btn quick-btn is-on" type="submit" title="Mark unwatched">`,
+		`<button class="icon-btn quick-btn is-on" type="submit" title="Remove from favourites">`)
+
+	// Without sources there is no grid to lay out.
+	wantNotContains(t, newTestEnv(t).get("/").Body.String(), `class="view-switch"`)
+}
+
+// TestVideoCardsOpenTheDrawer: a YouTube video's thumbnail and title open
+// its details in the drawer, where it plays, not YouTube in a new tab; an
+// article's still open the original.
+func TestVideoCardsOpenTheDrawer(t *testing.T) {
+	e := newTestEnv(t)
+	_, vid := e.summaryEntry(store.KindYouTube, "Synthetic Channel", "https://www.youtube.com/watch?v=abcdefghijk", "<p>About it</p>")
+	_, aid := e.summaryEntry(store.KindRSS, "Blog", "https://blog.example.com/post", "<p>Post</p>")
+	body := e.get("/").Body.String()
+	drawer := func(id int64) string {
+		return `href="/entries/` + idStr(id) + `" hx-get="/entries/` + idStr(id) + `" hx-target="#entry-drawer" hx-swap="innerHTML"`
+	}
+	wantContains(t, body,
+		`<article class="card is-video" id="entry-`+idStr(vid)+`"`,
+		`<a class="card-thumb opens-drawer `, drawer(vid)+` tabindex="-1" aria-hidden="true">`,
+		`<span class="thumb-play">`,
+		`<h3 class="card-title"><a class="opens-drawer" `+drawer(vid)+` aria-haspopup="dialog" title="About it">Episode one</a></h3>`,
+		`<article class="card" id="entry-`+idStr(aid)+`"`,
+		`<h3 class="card-title"><a href="https://blog.example.com/post" target="_blank" rel="noopener noreferrer" title="Post">Episode one</a></h3>`)
+	wantNotContains(t, body, `href="https://www.youtube.com/watch?v=abcdefghijk" target="_blank"`)
+	checkCSPMarkup(t, "home", body)
 }
 
 func TestCardOpensOriginalInNewTabWithoutMarkingRead(t *testing.T) {

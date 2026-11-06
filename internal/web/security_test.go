@@ -37,7 +37,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 		"bad host":   e.get("/", withHost("rebind.attacker.example")),
 	}
 	want := map[string]string{
-		"Content-Security-Policy": "default-src 'self'; img-src 'self' https: http: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+		"Content-Security-Policy": "default-src 'self'; img-src 'self' https: http: data:; style-src 'self'; script-src 'self'; frame-src https://www.youtube-nocookie.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
 		"Referrer-Policy":         "no-referrer",
 		"X-Content-Type-Options":  "nosniff",
 		"X-Frame-Options":         "DENY",

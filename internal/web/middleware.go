@@ -15,9 +15,11 @@ const maxRequestBody = 64 << 10
 
 // contentSecurityPolicy forbids inline scripts and styles (so no hx-on and no
 // style attributes in templates); images may come from any http(s) origin
-// because thumbnails and feed icons are hot-linked.
+// because thumbnails and feed icons are hot-linked. The only frames are a
+// video's player (playerView), YouTube's privacy-enhanced embed.
 const contentSecurityPolicy = "default-src 'self'; img-src 'self' https: http: data:; style-src 'self'; " +
-	"script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+	"script-src 'self'; frame-src " + youtubeEmbedOrigin + "; object-src 'none'; base-uri 'none'; " +
+	"frame-ancestors 'none'; form-action 'self'"
 
 // statusWriter records the status code and body size for logging and lets
 // the panic handler know whether a response has already started.
