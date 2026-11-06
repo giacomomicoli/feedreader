@@ -4,7 +4,7 @@
   <header class="topbar">
     <div class="topbar-title">
       <h1 class="page-title">Add source</h1>
-      <p class="topbar-sub">A YouTube channel or playlist, a website, or a feed URL.</p>
+      <p class="topbar-sub">A YouTube channel or playlist, a website, or a feed URL.{{with .FolderName}} It goes into the folder <strong>{{.}}</strong>.{{end}}</p>
     </div>
     <div class="toolbar">{{template "theme-switch"}}</div>
   </header>
@@ -22,6 +22,7 @@
 
 {{define "add-url"}}
 <form class="stack" method="post" action="/add/resolve" hx-post="/add/resolve">
+  {{template "add-preset-folder" .}}
   <label for="add-url">Address</label>
   <div class="input-row">
     <input id="add-url" name="url" type="text" inputmode="url" value="{{.URL}}" required maxlength="{{maxURL}}" autocomplete="off" autofocus
@@ -33,6 +34,7 @@
 </form>
 {{if .ShowDirect}}
 <form class="stack direct-feed" method="post" action="/add/preview" hx-post="/add/preview">
+  {{template "add-preset-folder" .}}
   <label for="direct-url">Or enter the feed URL directly</label>
   <div class="input-row">
     <input id="direct-url" name="feed_url" type="text" inputmode="url" value="{{.DirectURL}}" required maxlength="{{maxURL}}" autocomplete="off">
@@ -44,6 +46,7 @@
 
 {{define "add-choose"}}
 <form class="stack" method="post" action="/add/preview" hx-post="/add/preview">
+  {{template "add-preset-folder" .}}
   <input type="hidden" name="url" value="{{.URL}}">
   <fieldset class="choices">
     <legend>{{len .Candidates}} feeds found at {{.URL}}. Pick one.</legend>
@@ -56,7 +59,7 @@
   </fieldset>
   <div class="actions">
     <button class="btn btn-primary" type="submit">Continue</button>
-    <a class="btn btn-quiet" href="/add">Start over</a>
+    <a class="btn btn-quiet" href="{{.StartHref}}">Start over</a>
   </div>
 </form>
 {{end}}
@@ -97,7 +100,7 @@
   {{if .Error}}<p class="field-error">{{.Error}}</p>{{end}}
   <div class="actions">
     <button class="btn btn-primary" type="submit">Subscribe</button>
-    <a class="btn btn-quiet" href="/add">Cancel</a>
+    <a class="btn btn-quiet" href="{{.StartHref}}">Cancel</a>
   </div>
 </form>
 {{end}}
@@ -106,3 +109,6 @@
 <label for="sub-new-folder">New folder name</label>
 <input id="sub-new-folder" name="new_folder" type="text" value="{{.NewFolder}}" required maxlength="{{maxName}}" autocomplete="off">
 {{end}}
+
+{{/* The folder picked before the flow started, carried on by its forms. */}}
+{{define "add-preset-folder"}}{{if .Folder}}<input type="hidden" name="folder" value="{{.Folder}}">{{end}}{{end}}

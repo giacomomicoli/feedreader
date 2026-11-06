@@ -341,6 +341,9 @@ type folderNav struct {
 	Feeds  []feedNav
 }
 
+// AddHref is the add-source page with the folder already picked.
+func (f folderNav) AddHref() string { return addHref(f.ID) }
+
 type digestNav struct {
 	ID     int64
 	Name   string

@@ -82,13 +82,15 @@
 </form>
 {{end}}
 
-{{/* A folder in a section, with its feeds of that kind, or an empty one. */}}
+{{/* A folder in a section, with its feeds of that kind, or an empty one.
+     Its plus opens the add-source flow with the folder already picked. */}}
 {{define "folder-nav"}}
 <details class="folder"{{if .Open}} open{{end}}>
   <summary class="nav-item folder-row{{if .Active}} is-active{{end}}">
     <span class="folder-toggle">{{template "icon" "chevron"}}</span>
     <a class="nav-label" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>
     {{template "badge" .Badge}}
+    <a class="folder-add" href="{{.AddHref}}" title="Add a source to {{.Name}}">{{template "icon" "plus"}}<span class="sr-only">Add a source to {{.Name}}</span></a>
   </summary>
   {{if .Feeds}}
   <ul class="nav-list feed-list">{{range .Feeds}}{{template "feed-nav" .}}{{end}}</ul>

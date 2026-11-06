@@ -360,6 +360,31 @@ summary::-webkit-details-marker { display: none; }
 .folder-toggle .icon { width: 16px; height: 16px; transition: transform 120ms ease; }
 .folder[open] > summary .folder-toggle .icon { transform: rotate(90deg); }
 
+/* A folder's plus: add a source to it. Where there is a pointer that
+   hovers it shows on the folder's row only, its place kept so the badge
+   does not move; on touch screens it is always there. */
+.folder-add {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -4px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-3);
+}
+
+.folder-add .icon,
+.nav-item .folder-add .icon { width: 16px; height: 16px; color: inherit; }
+.folder-add:hover,
+.folder-add:focus-visible { background: var(--surface); color: var(--accent); }
+
+@media (hover: hover) {
+  .folder-add { opacity: 0; }
+  .folder-row:hover .folder-add,
+  .folder-row:focus-within .folder-add { opacity: 1; }
+}
+
 .feed-list { padding-left: var(--space-3-5); }
 .uncategorized { padding-left: 0; margin-top: 2px; }
 .feed-row { gap: 9px; }
