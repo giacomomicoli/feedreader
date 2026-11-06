@@ -50,6 +50,10 @@ const allBadgeID = "badge-all"
 type actionView struct {
 	Path  string
 	Label string
+	// Icon and On are its icon-only button in the list view's row: On
+	// marks the state the action undoes (read, saved, favourite).
+	Icon string
+	On   bool
 }
 
 // tagChip is a tag shown on a card.
@@ -138,10 +142,14 @@ func newCard(e store.EntryView, now time.Time, back string) cardView {
 	if e.IsFavourite {
 		favPath, favText = base+"unfavourite", "Remove from favourites"
 	}
+	laterIcon := "bookmark"
+	if e.FeedKind == store.KindYouTube {
+		laterIcon = "later"
+	}
 	c.Actions = []actionView{
-		{Path: readPath, Label: readActionLabel(e.FeedKind, e.IsRead)},
-		{Path: laterPath, Label: laterText},
-		{Path: favPath, Label: favText},
+		{Path: readPath, Label: readActionLabel(e.FeedKind, e.IsRead), Icon: "read", On: e.IsRead},
+		{Path: laterPath, Label: laterText, Icon: laterIcon, On: e.IsLater},
+		{Path: favPath, Label: favText, Icon: "star", On: e.IsFavourite},
 	}
 	for _, t := range e.Tags {
 		c.Tags = append(c.Tags, tagChip{

@@ -228,6 +228,42 @@
   document.addEventListener("htmx:load", syncThemeSwitches);
   document.addEventListener("theme-changed", syncThemeSwitches);
 
+  // The layout switch in each scope's top bar: the entries as a card grid
+  // or as a list. static/theme.js has already set data-view on <html>
+  // before the first paint, from the choice kept in localStorage; a click
+  // on one of its two buttons changes it and keeps it. Like the theme
+  // switch, it is rendered hidden and its state is filled in here, also
+  // for top bars that htmx swaps in later.
+  var VIEW_KEY = "feedreader-view";
+
+  function syncViewSwitches() {
+    var view = document.documentElement.getAttribute("data-view") === "list" ? "list" : "cards";
+    document.querySelectorAll(".view-switch").forEach(function (group) {
+      group.querySelectorAll("[data-view]").forEach(function (btn) {
+        btn.setAttribute("aria-pressed", btn.getAttribute("data-view") === view ? "true" : "false");
+      });
+      group.hidden = false;
+    });
+  }
+
+  document.addEventListener("click", function (evt) {
+    var btn = evt.target instanceof Element ? evt.target.closest(".view-switch [data-view]") : null;
+    if (!btn) {
+      return;
+    }
+    var view = btn.getAttribute("data-view") === "list" ? "list" : "cards";
+    document.documentElement.setAttribute("data-view", view);
+    try {
+      window.localStorage.setItem(VIEW_KEY, view);
+    } catch (e) {
+      // Storage blocked: the choice lasts until the page is left.
+    }
+    syncViewSwitches();
+  });
+
+  document.addEventListener("DOMContentLoaded", syncViewSwitches);
+  document.addEventListener("htmx:load", syncViewSwitches);
+
   // Feed icons and channel avatars are hot-linked and can stop loading (a
   // site drops its favicon, a channel changes its avatar). The feed's
   // initials follow every icon, hidden by the stylesheet while the icon is

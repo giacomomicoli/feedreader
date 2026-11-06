@@ -59,6 +59,7 @@
       {{if .IsTag}}
       <a class="btn btn-quiet-danger" href="/tags/{{.ID}}/delete" hx-get="/tags/{{.ID}}/delete" hx-target="#scope-confirm" hx-swap="innerHTML">Delete tag</a>
       {{end}}
+      {{if .HasFeeds}}{{template "view-switch"}}{{end}}
     </div>
   </header>
   <div id="scope-confirm"></div>
@@ -117,13 +118,39 @@
         {{if .IsLater}}<span class="flag" title="In {{.LaterLabel}}">{{if eq .Kind "youtube"}}{{template "icon" "later"}}{{else}}{{template "icon" "bookmark"}}{{end}}<span class="sr-only">In {{.LaterLabel}}</span></span>{{end}}
         {{if .IsFavourite}}<span class="flag flag-fav" title="Favourite">{{template "icon" "star"}}<span class="sr-only">Favourite</span></span>{{end}}
       </p>
+      {{if .Excerpt}}<p class="card-excerpt">{{.Excerpt}}</p>{{end}}
       {{if .Tags}}<ul class="card-tags">{{range .Tags}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>{{end}}
       {{if .HasDetails}}<a class="card-details" href="/entries/{{.ID}}" hx-get="/entries/{{.ID}}" hx-target="#entry-drawer" hx-swap="innerHTML" aria-haspopup="dialog">Details<span class="sr-only"> of {{.Title}}</span></a>{{end}}
     </div>
-    {{template "card-menu" .}}
+    <div class="card-actions">
+      {{template "card-quick" .}}
+      {{template "card-menu" .}}
+    </div>
   </div>
 </article>
 {{end}}
+
+{{/* The list view's quick actions, icon-only, on the right of each row;
+     app.css hides them in the card view, where the menu has them. */}}
+{{define "card-quick"}}
+<div class="card-quick">
+  {{range .Actions}}
+  <form method="post" action="{{.Path}}" hx-post="{{.Path}}">
+    <input type="hidden" name="back" value="{{$.Back}}">
+    <button class="icon-btn quick-btn{{if .On}} is-on{{end}}" type="submit" title="{{.Label}}">{{template "icon" .Icon}}<span class="sr-only">{{.Label}}: {{$.Title}}</span></button>
+  </form>
+  {{end}}
+</div>
+{{end}}
+
+{{/* The switch between the card grid and the list, in each scope's top
+     bar. Hidden until static/app.js fills in its state from data-view on
+     <html> (set by static/theme.js): without JavaScript the grid stays
+     cards and the switch would do nothing. */}}
+{{define "view-switch"}}<div class="view-switch" role="group" aria-label="Layout" hidden>
+  <button class="view-switch-btn" type="button" data-view="cards" aria-pressed="true" title="Cards">{{template "icon" "cards"}}<span class="sr-only">Cards</span></button>
+  <button class="view-switch-btn" type="button" data-view="list" aria-pressed="false" title="List">{{template "icon" "list"}}<span class="sr-only">List</span></button>
+</div>{{end}}
 
 {{define "card-menu"}}
 <details class="card-menu">

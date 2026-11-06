@@ -889,6 +889,93 @@ label { font-size: 14px; font-weight: 600; }
 .chip:hover { border-color: var(--danger); color: var(--danger); }
 .chip:hover .icon { color: var(--danger); }
 
+/* ---------- List view ---------- */
+
+/* The layout switch: icon-only, like the theme switch; the pressed
+   button carries the accent. */
+.view-switch {
+  display: inline-flex;
+  gap: 2px;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+}
+
+.view-switch[hidden] { display: none; }
+
+.view-switch-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+
+.view-switch-btn .icon { width: 16px; height: 16px; }
+.view-switch-btn:hover { color: var(--ink); }
+.view-switch-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+/* The card's description and quick actions belong to the list view. */
+.card-actions { display: flex; align-items: flex-start; gap: 2px; }
+.card-excerpt,
+.card-quick { display: none; }
+
+/* The list (data-view="list" on <html>, set by static/theme.js): one row
+   per entry, an invisible table, at most about three quarters of the
+   pane wide. Each row is the title, the description and the source line,
+   with the quick actions on the right; no thumbnail. */
+[data-view="list"] .grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  max-width: 75%;
+}
+
+[data-view="list"] .card { border-bottom: 1px solid var(--line); }
+[data-view="list"] .card-thumb { display: none; }
+[data-view="list"] .card-body { gap: var(--space-4); padding: var(--space-3-5) var(--space-2); border-radius: var(--radius-md); }
+[data-view="list"] .card:hover .card-body,
+[data-view="list"] .card:focus-within .card-body { background: var(--surface-raised); }
+[data-view="list"] .card-title { -webkit-line-clamp: 1; line-clamp: 1; font-size: 15.5px; }
+
+[data-view="list"] .card-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-view="list"] .card.is-read .card-excerpt { color: var(--ink-3); }
+[data-view="list"] .card-quick { display: flex; gap: 2px; }
+[data-view="list"] .card-quick form { margin: 0; }
+[data-view="list"] .card-menu > .icon-btn { margin-right: 0; }
+[data-view="list"] .load-more { padding-top: var(--space-4); }
+
+.quick-btn .icon { width: 17px; height: 17px; }
+.quick-btn.is-on { color: var(--accent); }
+.quick-btn.is-on:hover { color: var(--accent); }
+
+@media (max-width: 1100px) {
+  [data-view="list"] .grid { max-width: none; }
+}
+
+@media (max-width: 560px) {
+  /* Too narrow for the icons beside the text: the menu has them. */
+  [data-view="list"] .card-quick { display: none; }
+}
+
 /* ---------- Load more, empty states ---------- */
 
 .load-more { grid-column: 1 / -1; display: flex; justify-content: center; padding-top: 4px; }
