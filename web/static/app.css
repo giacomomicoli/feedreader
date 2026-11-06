@@ -979,6 +979,15 @@ label { font-size: 14px; font-weight: 600; }
 .entry-actions { margin-top: 0; }
 .entry-transcript-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px var(--space-3); margin-bottom: 8px; }
 .entry-transcript-label { margin: 0; }
+.entry-transcript-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+
+/* Copy shows the copy icon, then only the check once the text is copied. */
+.copy-transcript[hidden] { display: none; }
+.copy-transcript .copy-icon,
+.copy-transcript.is-copied .copied-icon { display: inline-grid; }
+.copy-transcript .copied-icon,
+.copy-transcript.is-copied .copy-icon { display: none; }
+.copy-transcript.is-copied .copied-icon { color: var(--accent); }
 .drawer-close { flex: 0 0 auto; }
 .drawer-close .icon-btn { margin-right: 0; }
 

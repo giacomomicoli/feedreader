@@ -1,5 +1,5 @@
-// feedreader — failed htmx requests, the entry drawer and its tabs, the
-// theme switch, and broken feed icons.
+// feedreader — failed htmx requests, the entry drawer and its tabs, copying
+// a transcript, the theme switch, and broken feed icons.
 // Plain script, no build step; loaded from 'self' as the
 // Content-Security-Policy requires, and not deferred (see the end of the
 // file).
@@ -112,6 +112,65 @@
       (line.querySelector("button") || line).focus();
     }
   });
+
+  // The Transcription tab's Copy button (data-copy names the element whose
+  // text it copies) is rendered hidden, as it needs JavaScript; it is shown
+  // here, also when htmx swaps a transcript in later. Once the text is on
+  // the clipboard its icon turns into a check and its label into "Copied",
+  // and they stay so: only reloading the page brings the copy icon back.
+  // The Clipboard API needs a secure context (HTTPS or localhost); without
+  // it the text is copied through a selected, off-screen textarea.
+  function showCopyButtons() {
+    document.querySelectorAll(".copy-transcript[hidden]").forEach(function (btn) {
+      btn.hidden = false;
+    });
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.className = "sr-only";
+      document.body.appendChild(area);
+      area.select();
+      var ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (e) {
+        ok = false;
+      }
+      area.remove();
+      if (ok) {
+        resolve();
+      } else {
+        reject(new Error("copy failed"));
+      }
+    });
+  }
+
+  document.addEventListener("click", function (evt) {
+    var btn = evt.target instanceof Element ? evt.target.closest(".copy-transcript") : null;
+    var source = btn ? document.getElementById(btn.getAttribute("data-copy")) : null;
+    if (!source) {
+      return;
+    }
+    copyText(source.textContent).then(function () {
+      btn.classList.add("is-copied");
+      var label = btn.querySelector(".copy-label");
+      if (label) {
+        label.textContent = "Copied";
+      }
+    }, function () {
+      showError("Could not copy the transcript. Select its text and copy it instead.");
+    });
+  });
+
+  document.addEventListener("DOMContentLoaded", showCopyButtons);
+  document.addEventListener("htmx:load", showCopyButtons);
 
   // Tabs (role="tab" in a role="tablist"): the entry's Summary and
   // Transcription. Each tab is a link to the page with that tab selected,

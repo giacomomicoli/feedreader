@@ -297,7 +297,7 @@ func TestTranscriptionTabIsLoadedWhenShown(t *testing.T) {
 	wantStatus(t, w, http.StatusOK)
 	frag := w.Body.String()
 	wantContains(t, frag, ">Transcript (en, auto-generated)</p>",
-		`<div class="entry-transcript-text" lang="en">`+escaped)
+		`<div class="entry-transcript-text" id="transcript-text-`+sid+`" lang="en">`+escaped)
 	wantNotContains(t, frag, "<b>not bold", `hx-swap-oob="true"`, "<!doctype html>")
 
 	page := e.get("/entries/" + sid + "/transcript").Body.String()
@@ -354,6 +354,25 @@ func TestEntryTranscriptLabel(t *testing.T) {
 		if tt.tr.Lang == "" {
 			wantNotContains(t, body, ` lang="`)
 		}
+	}
+}
+
+// TestEntryTranscriptCopyButton: the Transcription tab offers a Copy button
+// next to Download, hidden until static/app.js shows it, that names the
+// element holding the transcript's text, in the fragment and on the page.
+func TestEntryTranscriptCopyButton(t *testing.T) {
+	e := newTestEnv(t)
+	id := e.polledVideo(store.TranscriptResult{Outcome: store.TranscriptOK,
+		Transcript: store.Transcript{Lang: "en", Text: "Hello"}})
+	sid := idStr(id)
+	for _, w := range []*httptest.ResponseRecorder{
+		e.get("/entries/"+sid+"/transcript", htmx),
+		e.get("/entries/" + sid + "/transcript"),
+	} {
+		wantContains(t, w.Body.String(),
+			`<button class="btn btn-small btn-quiet copy-transcript" type="button" data-copy="transcript-text-`+sid+`" hidden>`,
+			`<span class="copy-label" aria-live="polite">Copy</span>`,
+			`<div class="entry-transcript-text" id="transcript-text-`+sid+`" lang="en">Hello</div>`)
 	}
 }
 
