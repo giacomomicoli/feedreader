@@ -6,7 +6,8 @@
   without a request. Without htmx it is the main pane of a page of its own,
   whose tabs are links to the two addresses.
 
-  The tabs are Summary and Transcription; static/app.js switches them
+  The tabs are Summary (Video for a YouTube video: its player above its
+  description) and Transcription; static/app.js switches them
   (arrow keys too) and tells the Transcription panel to load the transcript
   the first time it is shown (the "tab-shown" event), so opening the drawer
   never ships a long transcript. The Transcription tab is disabled unless a
@@ -37,7 +38,7 @@
   </header>
   <div class="tabs" role="tablist" aria-label="Entry details">
     <a class="tab" role="tab" id="tab-summary-{{.ID}}" href="/entries/{{.ID}}" aria-controls="panel-summary-{{.ID}}"
-      {{- if eq .Tab "summary"}} aria-selected="true" tabindex="0"{{if .Drawer}} autofocus{{end}}{{else}} aria-selected="false" tabindex="-1"{{end}}>Summary</a>
+      {{- if eq .Tab "summary"}} aria-selected="true" tabindex="0"{{if .Drawer}} autofocus{{end}}{{else}} aria-selected="false" tabindex="-1"{{end}}>{{if .Player}}Video{{else}}Summary{{end}}</a>
     {{if .HasTranscript -}}
     <a class="tab" role="tab" id="tab-transcript-{{.ID}}" href="/entries/{{.ID}}/transcript" aria-controls="panel-transcript-{{.ID}}"
       {{- if eq .Tab "transcript"}} aria-selected="true" tabindex="0"{{else}} aria-selected="false" tabindex="-1"{{end}}>Transcription</a>
@@ -47,8 +48,9 @@
   </div>
   {{with .Status}}{{template "transcript-status" .}}{{end}}
   <div class="tab-panel" role="tabpanel" id="panel-summary-{{.ID}}" aria-labelledby="tab-summary-{{.ID}}" tabindex="0"{{if ne .Tab "summary"}} hidden{{end}}>
+    {{with .Player}}{{template "player" .}}{{end}}
     {{if .Summary}}<div class="entry-summary">{{.Summary}}</div>
-    {{else}}<p class="entry-summary entry-none">This entry has no summary.</p>{{end}}
+    {{else}}<p class="entry-summary entry-none">{{if .Player}}This video has no description.{{else}}This entry has no summary.{{end}}</p>{{end}}
   </div>
   {{if .HasTranscript}}<div class="tab-panel" role="tabpanel" id="panel-transcript-{{.ID}}" aria-labelledby="tab-transcript-{{.ID}}" tabindex="0"
     {{- if ne .Tab "transcript"}} hidden{{end}}
@@ -80,3 +82,28 @@
   </form>{{end}}
 </div>
 {{end}}
+
+{{/*
+  A YouTube video's player (playerView). The poster is the video's
+  thumbnail with a play button; pressing it makes static/app.js put
+  YouTube's privacy-enhanced embed (data-embed, autoplaying) in its place,
+  so YouTube loads nothing but the image until then, and take it out again
+  when the drawer closes or another tab is shown, so the video never plays
+  out of sight. The frame is sandboxed and asks only for what playing
+  needs; it sends YouTube the page's origin as referrer (strict-origin),
+  without which the embed refuses to play, and nothing else. Without
+  JavaScript the poster is a link to the video. Watch on YouTube stays in
+  the player's frame, under the picture, where it covers no control.
+*/}}
+{{define "player"}}<figure class="player" data-embed="{{.EmbedURL}}" data-title="{{.Title}}">
+  <div class="player-screen">
+    <a class="player-poster" href="{{.WatchURL}}" target="_blank" rel="noopener noreferrer">
+      <img class="player-image" src="{{.Poster}}" data-hd="{{.PosterHD}}" alt="" decoding="async">
+      <span class="player-play">{{template "icon" "play"}}</span>
+      <span class="sr-only">Play {{.Title}}</span>
+    </a>
+  </div>
+  <figcaption class="player-bar">
+    <a class="player-watch" href="{{.WatchURL}}" target="_blank" rel="noopener noreferrer">{{template "icon" "external"}}<span>Watch on YouTube</span></a>
+  </figcaption>
+</figure>{{end}}

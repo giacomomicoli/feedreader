@@ -69,14 +69,15 @@
     drawer.showModal();
   });
 
-  // htmx cancels every click on the Details button to make its request, a
-  // Ctrl/Cmd-, Shift- or Alt-click too. Those belong to the browser (open
-  // the entry page in a new tab or window, …): they are stopped on the
-  // document in the capture phase, before they reach htmx's listener on
-  // the button, and their default action, following the href, is left
-  // alone.
+  // htmx cancels every click on the Details button, and on the other links
+  // that open the drawer (a video's thumbnail and title, a list row's
+  // description), to make its request, a Ctrl/Cmd-, Shift- or Alt-click
+  // too. Those belong to the browser (open the entry page in a new tab or
+  // window, …): they are stopped on the document in the capture phase,
+  // before they reach htmx's listener on the link, and their default
+  // action, following the href, is left alone.
   document.addEventListener("click", function (evt) {
-    var link = evt.target instanceof Element ? evt.target.closest("a.card-details") : null;
+    var link = evt.target instanceof Element ? evt.target.closest("a.card-details, a.opens-drawer") : null;
     if (link && (evt.ctrlKey || evt.metaKey || evt.shiftKey || evt.altKey)) {
       evt.stopPropagation();
     }
@@ -95,6 +96,7 @@
     if (!isEntryDrawer(evt.target)) {
       return;
     }
+    stopVideos(evt.target);
     if (opener && opener.isConnected) {
       opener.focus();
     }
@@ -140,6 +142,8 @@
         panel.hidden = !on;
         if (on) {
           panel.dispatchEvent(new CustomEvent("tab-shown"));
+        } else {
+          stopVideos(panel);
         }
       }
     });
@@ -191,6 +195,72 @@
       next.focus();
     }
   });
+
+  // A YouTube video's player in the entry's Video tab (see the "player"
+  // template): pressing its poster, a link to the video, puts YouTube's
+  // privacy-enhanced embed in the poster's place, autoplaying; a modified
+  // click still opens the link. The embed is taken out again, and the
+  // poster shown, when the drawer closes or another tab is shown, so a
+  // video never plays out of sight. The poster starts as the thumbnail
+  // every video has; the largest one is put in its place only once it has
+  // loaded and is really larger (YouTube answers a missing one with a
+  // 120×90 placeholder).
+  function playVideo(player) {
+    var screen = player.querySelector(".player-screen");
+    var poster = player.querySelector(".player-poster");
+    var src = player.getAttribute("data-embed");
+    if (!screen || !poster || !src || screen.querySelector("iframe")) {
+      return;
+    }
+    var frame = document.createElement("iframe");
+    frame.className = "player-frame";
+    frame.src = src;
+    frame.title = player.getAttribute("data-title") || "YouTube video";
+    frame.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");
+    frame.setAttribute("allowfullscreen", "");
+    frame.setAttribute("referrerpolicy", "strict-origin");
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox");
+    poster.hidden = true;
+    screen.appendChild(frame);
+    frame.focus();
+  }
+
+  function stopVideos(root) {
+    root.querySelectorAll(".player-frame").forEach(function (frame) {
+      var poster = frame.parentNode.querySelector(".player-poster");
+      frame.remove();
+      if (poster) {
+        poster.hidden = false;
+      }
+    });
+  }
+
+  document.addEventListener("click", function (evt) {
+    var poster = evt.target instanceof Element ? evt.target.closest(".player-poster") : null;
+    var player = poster ? poster.closest(".player") : null;
+    if (!player || evt.button !== 0 || evt.ctrlKey || evt.metaKey || evt.shiftKey || evt.altKey) {
+      return;
+    }
+    evt.preventDefault();
+    playVideo(player);
+  });
+
+  function upgradePosters() {
+    document.querySelectorAll(".player-image[data-hd]").forEach(function (img) {
+      var hd = img.getAttribute("data-hd");
+      img.removeAttribute("data-hd");
+      var probe = new Image();
+      probe.onload = function () {
+        if (probe.naturalWidth > 480 && img.isConnected) {
+          img.src = hd;
+        }
+      };
+      probe.src = hd;
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", upgradePosters);
+  document.addEventListener("htmx:load", upgradePosters);
 
   // The theme switch in each top bar: static/theme.js has already set
   // data-theme on <html> before the first paint. A click flips it and keeps

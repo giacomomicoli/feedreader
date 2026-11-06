@@ -10,6 +10,7 @@ import (
 	"github.com/giacomomicoli/feedreader/internal/parse"
 	"github.com/giacomomicoli/feedreader/internal/resolve"
 	"github.com/giacomomicoli/feedreader/internal/store"
+	"github.com/giacomomicoli/feedreader/internal/transcript"
 )
 
 // View models. Templates only ever receive plain strings, numbers and
@@ -84,7 +85,10 @@ type cardView struct {
 	// HasDetails: the card's Details button opens the entry drawer, which
 	// has something to show: a summary, a fetched transcript, or the
 	// transcript status of a YouTube video.
-	HasDetails  bool
+	HasDetails bool
+	// OpensDrawer: the entry is a YouTube video, whose thumbnail and
+	// title open the drawer, where it plays, instead of YouTube.
+	OpensDrawer bool
 	Kind        store.Kind
 	IsRead      bool
 	IsLater     bool
@@ -121,7 +125,8 @@ func newCard(e store.EntryView, now time.Time, back string) cardView {
 	if c.Title == "" {
 		c.Title = untitled
 	}
-	c.HasDetails = c.Excerpt != "" || e.HasTranscript || isVideo(e)
+	c.OpensDrawer = isVideo(e)
+	c.HasDetails = c.Excerpt != "" || e.HasTranscript || c.OpensDrawer
 	c.Thumb = httpURL(e.ThumbnailURL)
 	if c.Thumb == "" {
 		c.Thumb = firstImage(e.SummaryHTML)
@@ -193,7 +198,50 @@ type entryView struct {
 	Transcript    *transcriptView
 	// Status is the transcript status line of a YouTube video, or nil.
 	Status *transcriptStatusView
+	// Player is a YouTube video's player, shown above its description in
+	// the first tab, then called Video instead of Summary; nil otherwise.
+	Player *playerView
 	Drawer bool // rendered into the entry drawer rather than as a page
+}
+
+// playerView is a YouTube video's player in its details: a poster, the
+// video's thumbnail with a play button, that static/app.js replaces with
+// YouTube's privacy-enhanced embed (youtube-nocookie.com) when pressed, so
+// nothing of YouTube's but the image loads until the user asks to play.
+// Without JavaScript the poster is a link to the video. Watch on YouTube
+// is part of the player's frame, under the picture.
+type playerView struct {
+	EmbedURL string // the embed, autoplaying: it is only loaded on a press
+	WatchURL string // the video's page on YouTube
+	Poster   string // hqdefault: every video has it
+	PosterHD string // maxresdefault: tried by static/app.js, kept if it exists
+	Title    string
+}
+
+// YouTube's privacy-enhanced embed host and its thumbnail host. The
+// Content-Security-Policy allows frames from youtubeEmbedOrigin only.
+const (
+	youtubeEmbedOrigin = "https://www.youtube-nocookie.com"
+	youtubeImageBase   = "https://i.ytimg.com/vi/"
+)
+
+// newPlayer returns the player of e, or nil when e is not a YouTube video.
+func newPlayer(e store.EntryView, title string) *playerView {
+	if e.FeedKind != store.KindYouTube {
+		return nil
+	}
+	id, ok := transcript.VideoID(e.URL)
+	if !ok {
+		return nil
+	}
+	return &playerView{
+		// rel=0: suggestions at the end from the same channel only.
+		EmbedURL: youtubeEmbedOrigin + "/embed/" + id + "?autoplay=1&rel=0&playsinline=1",
+		WatchURL: "https://www.youtube.com/watch?v=" + id,
+		Poster:   youtubeImageBase + id + "/hqdefault.jpg",
+		PosterHD: youtubeImageBase + id + "/maxresdefault.jpg",
+		Title:    title,
+	}
 }
 
 // transcriptView is a video's transcript in the Transcription tab.
@@ -242,6 +290,7 @@ func newEntryView(e store.EntryView, now time.Time, drawer bool) entryView {
 	if v.Title == "" {
 		v.Title = untitled
 	}
+	v.Player = newPlayer(e, v.Title)
 	return v
 }
 

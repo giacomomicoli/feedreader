@@ -45,11 +45,11 @@ func TestEntryDrawerShowsTheFullSummaryWithItsLineBreaks(t *testing.T) {
 		`<h2 class="entry-title" id="entry-drawer-title">Episode one</h2>`,
 		`href="`+strings.ReplaceAll(feedHref(f.ID, ""), "&", "&amp;")+`"`, ">Synthetic Channel</span>",
 		`<time datetime="`, ">1 hour ago</time>",
-		// Two tabs: Summary selected (and focused when the drawer opens),
-		// Transcription disabled until a transcript is fetched.
+		// Two tabs: Video (a video's Summary) selected, and focused when the
+		// drawer opens; Transcription disabled until a transcript is fetched.
 		`<div class="tabs" role="tablist" aria-label="Entry details">`,
 		`<a class="tab" role="tab" id="tab-summary-`+sid+`" href="/entries/`+sid+`" aria-controls="panel-summary-`+sid+
-			`" aria-selected="true" tabindex="0" autofocus>Summary</a>`,
+			`" aria-selected="true" tabindex="0" autofocus>Video</a>`,
 		`<span class="tab" role="tab" id="tab-transcript-`+sid+`" aria-selected="false" aria-disabled="true"`,
 		`<div class="tab-panel" role="tabpanel" id="panel-summary-`+sid+`" aria-labelledby="tab-summary-`+sid+`" tabindex="0">`,
 		// Plain text, escaped, with its line breaks (app.css shows them).
@@ -68,6 +68,53 @@ func TestEntryDrawerShowsTheFullSummaryWithItsLineBreaks(t *testing.T) {
 	if e.entry(id).IsRead {
 		t.Error("opening the details marked the entry read")
 	}
+}
+
+// TestVideoTabPlaysTheVideo: a YouTube video's first tab is Video: its
+// player above its description. The player is a poster, the thumbnail and
+// a link to the video, until static/app.js puts the privacy-enhanced embed
+// in its place, which only it creates: no frame is in the markup, and the
+// Content-Security-Policy allows frames from youtube-nocookie.com only.
+// Watch on YouTube is in the player's frame. An article keeps its Summary.
+func TestVideoTabPlaysTheVideo(t *testing.T) {
+	e := newTestEnv(t)
+	_, vid := e.summaryEntry(store.KindYouTube, "Synthetic Channel", "https://www.youtube.com/watch?v=abcdefghijk", "<p>About it</p>")
+	_, aid := e.summaryEntry(store.KindRSS, "Blog", "https://blog.example.com/post", "<p>Post</p>")
+
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"drawer": e.get("/entries/"+idStr(vid), htmx),
+		"page":   e.get("/entries/" + idStr(vid)),
+	} {
+		body := w.Body.String()
+		wantContains(t, body,
+			`aria-selected="true" tabindex="0"`, `>Video</a>`,
+			`<figure class="player" data-embed="https://www.youtube-nocookie.com/embed/abcdefghijk?autoplay=1&amp;rel=0&amp;playsinline=1" data-title="Episode one">`,
+			`<a class="player-poster" href="https://www.youtube.com/watch?v=abcdefghijk" target="_blank" rel="noopener noreferrer">`,
+			`<img class="player-image" src="https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg" data-hd="https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg" alt="" decoding="async">`,
+			`<span class="sr-only">Play Episode one</span>`,
+			`<a class="player-watch" href="https://www.youtube.com/watch?v=abcdefghijk" target="_blank" rel="noopener noreferrer">`,
+			"<span>Watch on YouTube</span>",
+			`<div class="entry-summary">About it</div>`)
+		if strings.Index(body, "</figure>") > strings.Index(body, `<div class="entry-summary">`) {
+			t.Errorf("%s: the description is not under the player", name)
+		}
+		wantNotContains(t, body, "<iframe")
+		checkCSPMarkup(t, name, body)
+		if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src https://www.youtube-nocookie.com;") {
+			t.Errorf("%s: CSP = %q", name, csp)
+		}
+	}
+
+	article := e.get("/entries/"+idStr(aid), htmx).Body.String()
+	wantContains(t, article, `autofocus>Summary</a>`, `<div class="entry-summary">Post</div>`)
+	wantNotContains(t, article, `class="player"`, "Watch on YouTube")
+
+	// The frame is made on a press, sandboxed, sending YouTube the origin
+	// only, and taken out when the drawer closes or another tab is shown.
+	js := e.get("/static/app.js").Body.String()
+	wantContains(t, js, `document.createElement("iframe")`, `frame.setAttribute("referrerpolicy", "strict-origin")`,
+		`frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox")`,
+		"stopVideos(evt.target);", "stopVideos(panel);")
 }
 
 func TestEntryPageWithoutJavaScript(t *testing.T) {
@@ -211,7 +258,7 @@ func TestCardDetailsButtonOpensTheEntryDrawer(t *testing.T) {
 	// htmx's listener, and keeps its default action: the browser follows
 	// href.
 	modifiedClick := regexp.MustCompile(`document\.addEventListener\("click", function \(evt\) \{[^}]*` +
-		`\.closest\("a\.card-details"\)[^}]*evt\.ctrlKey \|\| evt\.metaKey \|\| evt\.shiftKey \|\| evt\.altKey[^}]*\{\s*` +
+		`\.closest\("a\.card-details, a\.opens-drawer"\)[^}]*evt\.ctrlKey \|\| evt\.metaKey \|\| evt\.shiftKey \|\| evt\.altKey[^}]*\{\s*` +
 		`evt\.stopPropagation\(\);\s*\}\s*\}, true\);`)
 	if !modifiedClick.MatchString(js) {
 		t.Error("app.js does not stop modified clicks on the Details button in the capture phase")
@@ -327,7 +374,7 @@ func TestTranscriptionTabDisabledUnlessFetched(t *testing.T) {
 		id := e.polledVideoWith("", r)
 		body := e.get("/entries/"+idStr(id), htmx).Body.String()
 		wantContains(t, body, `id="tab-transcript-`+idStr(id)+`" aria-selected="false" aria-disabled="true"`,
-			"This entry has no summary.", `id="transcript-status-`+idStr(id)+`"`)
+			"This video has no description.", `id="transcript-status-`+idStr(id)+`"`)
 		if strings.Contains(body, `id="panel-transcript-`) {
 			t.Errorf("%s: a Transcription panel without a transcript", name)
 		}

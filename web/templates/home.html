@@ -102,15 +102,28 @@
 </div>
 {{end}}
 
+{{/* A card. A video's thumbnail and title open its details in the entry
+     drawer, where it plays (the Video tab); an article's open the original
+     in a new tab. In the list view, the description opens the drawer too,
+     with the full text. */}}
 {{define "card"}}
-<article class="card{{if .IsRead}} is-read{{end}}" id="entry-{{.ID}}" hx-target="this" hx-swap="outerHTML">
+<article class="card{{if .IsRead}} is-read{{end}}{{if .OpensDrawer}} is-video{{end}}" id="entry-{{.ID}}" hx-target="this" hx-swap="outerHTML">
+  {{if .OpensDrawer -}}
+  <a class="card-thumb opens-drawer {{.Avatar.Palette}}" href="/entries/{{.ID}}" hx-get="/entries/{{.ID}}" hx-target="#entry-drawer" hx-swap="innerHTML" tabindex="-1" aria-hidden="true">
+  {{- else -}}
   <a class="card-thumb {{.Avatar.Palette}}"{{if .Href}} href="{{.Href}}" target="_blank" rel="noopener noreferrer"{{end}} tabindex="-1" aria-hidden="true">
+  {{- end}}
     {{if .Thumb}}<img class="{{if .ThumbIsIcon}}thumb-icon{{else}}thumb-image{{end}}" src="{{.Thumb}}" alt="" loading="lazy" decoding="async">{{end}}
     {{if or (not .Thumb) .ThumbIsIcon}}<span class="thumb-initials">{{.Avatar.Initials}}</span>{{end}}
+    {{if .OpensDrawer}}<span class="thumb-play">{{template "icon" "play"}}</span>{{end}}
   </a>
   <div class="card-body">
     <div class="card-text">
+      {{if .OpensDrawer -}}
+      <h3 class="card-title"><a class="opens-drawer" href="/entries/{{.ID}}" hx-get="/entries/{{.ID}}" hx-target="#entry-drawer" hx-swap="innerHTML" aria-haspopup="dialog"{{if .Excerpt}} title="{{.Excerpt}}"{{end}}>{{.Title}}</a></h3>
+      {{- else -}}
       <h3 class="card-title"><a{{if .Href}} href="{{.Href}}" target="_blank" rel="noopener noreferrer"{{end}}{{if .Excerpt}} title="{{.Excerpt}}"{{end}}>{{.Title}}</a></h3>
+      {{- end}}
       <a class="card-source" href="{{.FeedHref}}">{{template "avatar" .Avatar}}<span>{{.FeedTitle}}</span></a>
       <p class="card-meta">
         <time datetime="{{.ISOTime}}" title="{{.AbsTime}}">{{.RelTime}}</time>
@@ -118,7 +131,7 @@
         {{if .IsLater}}<span class="flag" title="In {{.LaterLabel}}">{{if eq .Kind "youtube"}}{{template "icon" "later"}}{{else}}{{template "icon" "bookmark"}}{{end}}<span class="sr-only">In {{.LaterLabel}}</span></span>{{end}}
         {{if .IsFavourite}}<span class="flag flag-fav" title="Favourite">{{template "icon" "star"}}<span class="sr-only">Favourite</span></span>{{end}}
       </p>
-      {{if .Excerpt}}<p class="card-excerpt">{{.Excerpt}}</p>{{end}}
+      {{if .Excerpt}}<a class="card-excerpt opens-drawer" href="/entries/{{.ID}}" hx-get="/entries/{{.ID}}" hx-target="#entry-drawer" hx-swap="innerHTML" aria-haspopup="dialog" title="Show the full description">{{.Excerpt}}</a>{{end}}
       {{if .Tags}}<ul class="card-tags">{{range .Tags}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>{{end}}
       {{if .HasDetails}}<a class="card-details" href="/entries/{{.ID}}" hx-get="/entries/{{.ID}}" hx-target="#entry-drawer" hx-swap="innerHTML" aria-haspopup="dialog">Details<span class="sr-only"> of {{.Title}}</span></a>{{end}}
     </div>

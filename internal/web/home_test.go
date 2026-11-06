@@ -271,7 +271,9 @@ func TestListViewMarkup(t *testing.T) {
 		`<div class="view-switch" role="group" aria-label="Layout" hidden>`,
 		`data-view="cards" aria-pressed="true" title="Cards">`,
 		`data-view="list" aria-pressed="false" title="List">`,
-		`<p class="card-excerpt">Summary of yt entry 0</p>`,
+		// The description, cut short in the list, opens the drawer with all of it.
+		`<a class="card-excerpt opens-drawer" href="/entries/`+idStr(ev.ID)+`" hx-get="/entries/`+idStr(ev.ID)+
+			`" hx-target="#entry-drawer" hx-swap="innerHTML" aria-haspopup="dialog" title="Show the full description">Summary of yt entry 0</a>`,
 		`<form method="post" action="`+base+`read" hx-post="`+base+`read">`,
 		`<button class="icon-btn quick-btn" type="submit" title="Mark watched">`,
 		`<span class="sr-only">Mark watched: yt entry 0</span>`,
@@ -290,6 +292,28 @@ func TestListViewMarkup(t *testing.T) {
 
 	// Without sources there is no grid to lay out.
 	wantNotContains(t, newTestEnv(t).get("/").Body.String(), `class="view-switch"`)
+}
+
+// TestVideoCardsOpenTheDrawer: a YouTube video's thumbnail and title open
+// its details in the drawer, where it plays, not YouTube in a new tab; an
+// article's still open the original.
+func TestVideoCardsOpenTheDrawer(t *testing.T) {
+	e := newTestEnv(t)
+	_, vid := e.summaryEntry(store.KindYouTube, "Synthetic Channel", "https://www.youtube.com/watch?v=abcdefghijk", "<p>About it</p>")
+	_, aid := e.summaryEntry(store.KindRSS, "Blog", "https://blog.example.com/post", "<p>Post</p>")
+	body := e.get("/").Body.String()
+	drawer := func(id int64) string {
+		return `href="/entries/` + idStr(id) + `" hx-get="/entries/` + idStr(id) + `" hx-target="#entry-drawer" hx-swap="innerHTML"`
+	}
+	wantContains(t, body,
+		`<article class="card is-video" id="entry-`+idStr(vid)+`"`,
+		`<a class="card-thumb opens-drawer `, drawer(vid)+` tabindex="-1" aria-hidden="true">`,
+		`<span class="thumb-play">`,
+		`<h3 class="card-title"><a class="opens-drawer" `+drawer(vid)+` aria-haspopup="dialog" title="About it">Episode one</a></h3>`,
+		`<article class="card" id="entry-`+idStr(aid)+`"`,
+		`<h3 class="card-title"><a href="https://blog.example.com/post" target="_blank" rel="noopener noreferrer" title="Post">Episode one</a></h3>`)
+	wantNotContains(t, body, `href="https://www.youtube.com/watch?v=abcdefghijk" target="_blank"`)
+	checkCSPMarkup(t, "home", body)
 }
 
 func TestCardOpensOriginalInNewTabWithoutMarkingRead(t *testing.T) {
