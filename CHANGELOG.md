@@ -5,9 +5,51 @@ All notable changes to feedreader are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Until 1.0.0, any release may change behaviour, settings or the database schema;
-alpha releases are early previews meant for a single trusted user.
+alpha releases are early previews meant for a single trusted user, and beta
+releases are feature-complete candidates for 1.0.0 that only get fixes.
 
 ## [Unreleased]
+
+## [1.0.0-beta.1] - 2026-11-06
+
+First beta: feature-complete for 1.0.0, which follows once it has run in
+production without surprises; until then only fixes. No database migrations
+and no new settings: upgrading from 0.1.0-alpha.2 is a swap of the binary.
+
+### Added
+
+- Switch the entries between the card grid and a list, with two icon-only
+  buttons on the right of each top bar; the choice is kept in the browser.
+  A list row shows the thumbnail, the title, the description cut to two lines
+  and the source, and the quick actions as icon buttons on its right; every
+  row has the same height, and pressing a description opens the details with
+  all of it (#47).
+- Play a YouTube video in the details drawer: its first tab is now Video, a
+  player above the full description, with Watch on YouTube in the player's
+  frame. The player loads YouTube's privacy-enhanced embed
+  (`youtube-nocookie.com`) only when pressed, in a sandboxed frame that sends
+  YouTube the site's origin only, and stops when the drawer closes or another
+  tab is shown (#47).
+- Copy a video's whole transcript to the clipboard from its Transcription
+  tab, next to Download (#45).
+- Add a source straight into a folder with the + on the right of the folder
+  in the sidebar; the add flow starts with that folder picked (#42).
+- Move a source to another folder from its page, with the Move button next
+  to Feed settings (#43).
+
+### Changed
+
+- A video's thumbnail and title open its details in the drawer, where it
+  plays, instead of YouTube in a new tab; Ctrl/Cmd-click still opens the
+  page in a new tab. Articles still open the original (#47).
+- The README is rewritten as a short introduction; the details of how
+  polling, YouTube, transcripts and digests work moved to
+  `docs/how-it-works.md`.
+- The Content-Security-Policy allows frames from
+  `https://www.youtube-nocookie.com` only, for the video player.
+- `modernc.org/sqlite` updated from 1.60.1 to 1.61.1. 1.61.1 fixes a
+  regression of 1.61.0 that planned prepared statements again on every run,
+  which the store uses to insert entries (#48).
 
 ### Security
 
@@ -101,6 +143,7 @@ for YouTube channels and blogs.
 - Built with Go 1.26.10, which fixes GO-2026-6809 (compromised intermediate
   certificates trusted by `crypto/x509`).
 
-[Unreleased]: https://github.com/giacomomicoli/feedreader/compare/v0.1.0-alpha.2...HEAD
+[Unreleased]: https://github.com/giacomomicoli/feedreader/compare/v1.0.0-beta.1...HEAD
+[1.0.0-beta.1]: https://github.com/giacomomicoli/feedreader/compare/v0.1.0-alpha.2...v1.0.0-beta.1
 [0.1.0-alpha.2]: https://github.com/giacomomicoli/feedreader/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/giacomomicoli/feedreader/releases/tag/v0.1.0-alpha.1
