@@ -945,7 +945,11 @@ label { font-size: 14px; font-weight: 600; }
 [data-view="list"] .card:focus-within .card-body { background: var(--surface-raised); }
 [data-view="list"] .card-title { -webkit-line-clamp: 1; line-clamp: 1; font-size: 15.5px; }
 
+/* Title, then description, then the source line and the rest. */
+[data-view="list"] .card-title { order: -2; }
+
 [data-view="list"] .card-excerpt {
+  order: -1;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
